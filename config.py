@@ -6,7 +6,7 @@ def _env(key, default=None):
     return os.environ.get(f"MEGAQUEUE_{key}", default)
 
 # Megabasterd REST API
-MEGABASTERD_API_URL = _env("MEGABASTERD_API_URL", "http://localhost:8217")
+MEGABASTERD_API_URL = _env("MEGABASTERD_API_URL", "http://localhost:8127")
 MEGABASTERD_POLL_INTERVAL = int(_env("MEGABASTERD_POLL_INTERVAL", "5"))
 
 # Plex library paths

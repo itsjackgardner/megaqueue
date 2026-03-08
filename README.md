@@ -22,7 +22,7 @@ mvn package
 ```
 
 Run the JAR, then in megabasterd's settings:
-- **Downloads tab**: Enable "Remote API", set port to `8217`
+- **Downloads tab**: Enable "Remote API", set port to `8127`
 - **Downloads tab**: Configure smart proxy with your proxy list
 - **Advanced tab**: Set your MEGA API key
 
@@ -56,7 +56,7 @@ export MEGAQUEUE_NTFY_TOPIC="megaqueue-<random-suffix>"
 Optional (defaults shown):
 
 ```bash
-export MEGAQUEUE_MEGABASTERD_API_URL="http://localhost:8217"
+export MEGAQUEUE_MEGABASTERD_API_URL="http://localhost:8127"
 export MEGAQUEUE_MEGABASTERD_POLL_INTERVAL="5"
 export MEGAQUEUE_NTFY_SERVER="https://ntfy.sh"
 export MEGAQUEUE_HOST="0.0.0.0"
