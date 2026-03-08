@@ -123,25 +123,32 @@ def _post_process(download, mb_dl):
 def _worker_loop(client):
     """Main worker loop — picks queued downloads and processes them."""
     while True:
-        download = (
-            db_session.query(Download)
-            .filter(Download.status == "queued")
-            .order_by(Download.created_at)
-            .first()
-        )
-
-        if download is None:
-            time.sleep(2)
-            continue
-
-        log.info("Processing download: '%s' (id=%d)", download.title, download.id)
         try:
-            _process_download(client, download)
+            download = (
+                db_session.query(Download)
+                .filter(Download.status == "queued")
+                .order_by(Download.created_at)
+                .first()
+            )
+
+            if download is None:
+                time.sleep(2)
+                continue
+
+            log.info("Processing download: '%s' (id=%d)", download.title, download.id)
+            try:
+                _process_download(client, download)
+            except Exception as e:
+                log.error("Unexpected error processing download %d: %s", download.id, e)
+                try:
+                    download.status = "failed"
+                    download.error_message = f"Unexpected error: {e}"
+                    db_session.commit()
+                except Exception:
+                    db_session.rollback()
         except Exception as e:
-            log.error("Unexpected error processing download %d: %s", download.id, e)
-            download.status = "failed"
-            download.error_message = f"Unexpected error: {e}"
-            db_session.commit()
+            log.error("Worker loop error: %s", e)
+            time.sleep(5)
         finally:
             db_session.remove()
 
