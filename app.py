@@ -22,6 +22,7 @@ csrf = CSRFProtect(app)
 Talisman(
     app,
     force_https=False,
+    session_cookie_secure=False,
     content_security_policy={
         "default-src": "'self'",
         "script-src": ["'self'", "https://cdn.tailwindcss.com"],
