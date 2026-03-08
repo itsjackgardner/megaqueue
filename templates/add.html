@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Add Download{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold mb-6">Add Download</h1>
+<form method="POST" action="/download" class="space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div>
+        <label class="block text-sm text-gray-400 mb-1">Title</label>
+        <input type="text" name="title" required placeholder="e.g. Inception"
+               class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500">
+    </div>
+
+    <div>
+        <label class="block text-sm text-gray-400 mb-1">Year (optional)</label>
+        <input type="number" name="year" placeholder="e.g. 2010" min="1900" max="2099"
+               class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500">
+    </div>
+
+    <div>
+        <label class="block text-sm text-gray-400 mb-1">Type</label>
+        <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="media_type" value="movie" checked class="text-blue-500">
+                <span>Movie</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="media_type" value="tv" class="text-blue-500">
+                <span>TV Show</span>
+            </label>
+        </div>
+    </div>
+
+    <div>
+        <label class="block text-sm text-gray-400 mb-1">Mega.nz Links (one per line)</label>
+        <textarea name="links" rows="5" required placeholder="https://mega.nz/file/..."
+                  class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
+    </div>
+
+    <button type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded">
+        Queue Download
+    </button>
+</form>
+{% endblock %}
