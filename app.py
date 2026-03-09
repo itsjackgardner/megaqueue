@@ -27,6 +27,7 @@ Talisman(
         "default-src": "'self'",
         "script-src": ["'self'", "https://cdn.tailwindcss.com"],
         "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "worker-src": "'self'",
     },
 )
 

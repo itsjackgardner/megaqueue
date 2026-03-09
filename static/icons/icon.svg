@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1f2937"/>
+  <g transform="translate(256,256)">
+    <!-- Down arrow -->
+    <path d="M0,-80 L0,60 M-50,20 L0,70 L50,20" stroke="#3b82f6" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <!-- Queue line -->
+    <line x1="-70" y1="100" x2="70" y2="100" stroke="#3b82f6" stroke-width="32" stroke-linecap="round"/>
+  </g>
+</svg>
