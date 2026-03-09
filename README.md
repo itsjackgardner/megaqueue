@@ -2,94 +2,225 @@
 
 Self-hosted web app for queueing mega.nz downloads via megabasterd, organizing files into Plex library folders, and getting push notifications when they're ready.
 
+## Architecture
+
+```
+Phone browser
+    |
+    |-- LAN: http://192.168.x.x:5000
+    +-- Remote: https://queue.yourdomain.com
+              |
+              +-- Cloudflare Tunnel (cloudflared)
+                        |
+    +-------------------+
+    |
+    v
+MegaQueue (Flask/Waitress)
+    |
+    |-- SQLite DB (download queue)
+    |-- Worker thread
+    |     |
+    |     |-- POST /start -> megabasterd API
+    |     |-- GET /status  -> poll progress
+    |     +-- POST /stop   -> cancel
+    |
+    |-- File organizer (Plex folder structure)
+    +-- ntfy.sh notifications
+              |
+              v
+        megabasterd (Java, smart proxy)
+              |
+              v
+          mega.nz
+```
+
 ## Prerequisites
 
-- **Python 3.10+** on the Windows NUC
-- **Megabasterd fork** (with REST API) — see below
-- **Cloudflare account** with a domain for remote access
-- **ntfy.sh app** on your phone (subscribe to your chosen topic)
+Install on the Windows NUC (all available via Chocolatey: `choco install git python maven adoptopenjdk 7zip nssm -y`):
+
+- **Git for Windows**
+- **Python 3.10+** (check "Add to PATH" during install)
+- **Java 21+** (needed to build and run megabasterd)
+- **Maven** (needed to build megabasterd)
+- **7-Zip** (needed by patool for extracting archives)
+- **NSSM** (for running as Windows services)
+- **ntfy app** on your phone — https://ntfy.sh
 
 ## Setup
 
-### 1. Install megabasterd fork
+### 1. Clone the project
 
-Clone and build the megabasterd fork that includes the REST API:
-
-```bash
-git clone https://github.com/<your-username>/megabasterd.git
-cd megabasterd
-mvn package
+```powershell
+git clone --recurse-submodules git@github.com:itsjackgardner/megaqueue-dev.git
+cd megaqueue-dev
 ```
 
-Run the JAR, then in megabasterd's settings:
-- **Downloads tab**: Enable "Remote API", set port to `8127`
-- **Downloads tab**: Configure smart proxy with your proxy list
-- **Advanced tab**: Set your MEGA API key
+If you already cloned without `--recurse-submodules`:
 
-### 2. Install MegaQueue
+```powershell
+git submodule update --init
+```
 
-```bash
-cd megaqueue
+### 2. Build megabasterd
+
+```powershell
+cd megabasterd
+mvn package -DskipTests
+```
+
+The executable JAR will be at `target/MegaBasterd-8.22-jar-with-dependencies.jar`.
+
+### 3. Configure megabasterd
+
+Run it once to set up the GUI settings:
+
+```powershell
+java -jar target/MegaBasterd-8.22-jar-with-dependencies.jar
+```
+
+In the megabasterd settings:
+
+1. **Advanced tab** — Enable "Remote API", set port to `8127`
+2. **Downloads tab** — Configure smart proxy with your proxy list
+3. **Advanced tab** — Set your MEGA API key if you have one
+
+Leave megabasterd running — MegaQueue talks to it via the REST API on port 8127.
+
+### 4. Set up MegaQueue
+
+```powershell
+cd ..\megaqueue
 pip install -r requirements.txt
 ```
 
-### 3. Generate a password hash
+#### Generate a password hash
 
-```bash
+```powershell
 python hashpw.py
 ```
 
-Copy the output hash.
+Enter your desired password when prompted and copy the bcrypt hash it outputs.
 
-### 4. Configure
+#### Create a `.env` file
 
-Set environment variables (or create a `.env` file and source it):
+Create `megaqueue/.env` with your configuration:
 
-```bash
-export MEGAQUEUE_SECRET_KEY="<random-string-at-least-32-chars>"
-export MEGAQUEUE_PASSWORD_HASH="<bcrypt-hash-from-step-3>"
-export MEGAQUEUE_PLEX_MOVIES_DIR="D:/Plex/Movies"
-export MEGAQUEUE_PLEX_TV_DIR="D:/Plex/TV Shows"
-export MEGAQUEUE_NTFY_TOPIC="megaqueue-<random-suffix>"
+```
+MEGAQUEUE_SECRET_KEY=change-me-to-a-random-string-at-least-32-chars
+MEGAQUEUE_PASSWORD_HASH=$2b$12$your-hash-from-above
+MEGAQUEUE_PLEX_MOVIES_DIR=D:/Plex/Movies
+MEGAQUEUE_PLEX_TV_DIR=D:/Plex/TV Shows
+MEGAQUEUE_NTFY_TOPIC=megaqueue-change-me-to-something-random
 ```
 
 Optional (defaults shown):
 
-```bash
-export MEGAQUEUE_MEGABASTERD_API_URL="http://localhost:8127"
-export MEGAQUEUE_MEGABASTERD_POLL_INTERVAL="5"
-export MEGAQUEUE_NTFY_SERVER="https://ntfy.sh"
-export MEGAQUEUE_HOST="0.0.0.0"
-export MEGAQUEUE_PORT="5000"
+```
+MEGAQUEUE_MEGABASTERD_API_URL=http://localhost:8127
+MEGAQUEUE_MEGABASTERD_POLL_INTERVAL=5
+MEGAQUEUE_NTFY_SERVER=https://ntfy.sh
+MEGAQUEUE_HOST=0.0.0.0
+MEGAQUEUE_PORT=5000
 ```
 
-### 5. Run
+Load environment variables before running:
 
-```bash
+```powershell
+foreach ($line in Get-Content .env) {
+    if ($line -match "^([^#=]+)=(.*)$") {
+        [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim())
+    }
+}
+```
+
+### 5. Run MegaQueue
+
+Make sure megabasterd is already running, then:
+
+```powershell
 python app.py
 ```
 
-MegaQueue starts on `http://0.0.0.0:5000` via Waitress.
+MegaQueue starts on `http://0.0.0.0:5000`. Open it from your phone at `http://<NUC-local-IP>:5000`.
 
-### 6. Set up Cloudflare Tunnel (for remote access)
+### 6. Run as Windows services (optional)
 
-1. Register a domain and point its DNS to Cloudflare
-2. Install `cloudflared` on the NUC: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-3. Authenticate: `cloudflared tunnel login`
-4. Create a tunnel: `cloudflared tunnel create megaqueue`
-5. Configure the tunnel to point to `http://localhost:5000`
-6. Add a DNS record: `cloudflared tunnel route dns megaqueue megaqueue.yourdomain.com`
-7. Install as a Windows service: `cloudflared service install`
+Use NSSM to run both as Windows services that start automatically and restart on crash.
 
-Now access MegaQueue at `https://megaqueue.yourdomain.com` from anywhere.
+#### Install megabasterd as a service
 
-### 7. (Optional) Set up Cloudflare Access
+```powershell
+nssm install megabasterd java -jar "C:\path\to\megaqueue-dev\megabasterd\target\MegaBasterd-8.22-jar-with-dependencies.jar"
+nssm set megabasterd AppDirectory "C:\path\to\megaqueue-dev\megabasterd"
+nssm set megabasterd DisplayName "MegaBasterd"
+nssm set megabasterd Start SERVICE_AUTO_START
+```
 
-For an extra authentication layer in front of MegaQueue:
+#### Install MegaQueue as a service
 
-1. Go to Cloudflare Zero Trust dashboard
-2. Create an Access application for `megaqueue.yourdomain.com`
-3. Add an email-based policy (your email gets an OTP to log in)
+```powershell
+nssm install megaqueue python app.py
+nssm set megaqueue AppDirectory "C:\path\to\megaqueue-dev\megaqueue"
+nssm set megaqueue DisplayName "MegaQueue"
+nssm set megaqueue DependOnService megabasterd
+nssm set megaqueue Start SERVICE_AUTO_START
+```
+
+Set environment variables from your `.env` file:
+
+```powershell
+nssm set megaqueue AppEnvironmentExtra ^
+    MEGAQUEUE_SECRET_KEY=your-secret-key ^
+    MEGAQUEUE_PASSWORD_HASH=your-hash ^
+    MEGAQUEUE_PLEX_MOVIES_DIR=D:/Plex/Movies ^
+    "MEGAQUEUE_PLEX_TV_DIR=D:/Plex/TV Shows" ^
+    MEGAQUEUE_NTFY_TOPIC=your-topic
+```
+
+#### Manage the services
+
+```powershell
+nssm start megaqueue         # start
+nssm status megaqueue        # check status
+nssm restart megaqueue       # restart
+nssm stop megaqueue          # stop
+nssm edit megaqueue          # open GUI to edit settings
+nssm remove megaqueue        # uninstall the service
+```
+
+You can also manage them from the Windows Services panel (`services.msc`).
+
+### 7. Remote access via Cloudflare Tunnel (optional)
+
+1. Sign up for Cloudflare and add a domain
+2. Download cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+3. Run the setup:
+
+```powershell
+cloudflared tunnel login
+cloudflared tunnel create megaqueue
+cloudflared tunnel route dns megaqueue queue.yourdomain.com
+```
+
+4. Create `C:\Users\<you>\.cloudflared\config.yml`:
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: C:\Users\<you>\.cloudflared\<tunnel-id>.json
+
+ingress:
+  - hostname: queue.yourdomain.com
+    service: http://localhost:5000
+  - service: http_status:404
+```
+
+5. Install as a Windows service:
+
+```powershell
+cloudflared service install
+```
+
+Now access MegaQueue at `https://queue.yourdomain.com` from anywhere.
 
 ## Usage
 
@@ -98,35 +229,3 @@ For an extra authentication layer in front of MegaQueue:
 3. Tap "+ Add", enter the title, year, type, and paste mega.nz links
 4. MegaQueue submits to megabasterd, tracks progress, organizes into Plex folders
 5. Get a push notification on your phone when it's ready
-
-## Architecture
-
-```
-Phone browser
-    │
-    ├── LAN: http://192.168.x.x:5000
-    └── Remote: https://megaqueue.yourdomain.com
-              │
-              └── Cloudflare Tunnel (cloudflared)
-                        │
-    ┌───────────────────┘
-    │
-    ▼
-MegaQueue (Flask/Waitress)
-    │
-    ├── SQLite DB (download queue)
-    ├── Worker thread
-    │     │
-    │     ├── POST /start → megabasterd API
-    │     ├── GET /status  → poll progress
-    │     └── POST /stop   → cancel
-    │
-    ├── File organizer (Plex folder structure)
-    └── ntfy.sh notifications
-              │
-              ▼
-        megabasterd (Java, smart proxy)
-              │
-              ▼
-          mega.nz
-```
