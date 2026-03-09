@@ -2,7 +2,6 @@ flask==3.1.*
 sqlalchemy==2.0.*
 requests==2.32.*
 patool==3.1.*
-bcrypt==4.2.*
 flask-wtf==1.2.*
 flask-talisman==1.1.*
 waitress==3.0.*

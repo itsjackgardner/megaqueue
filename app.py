@@ -1,12 +1,11 @@
 import logging
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
 import config
 from models import db_session, init_db, Download
-from auth import check_password, login_required
 from megabasterd_client import MegabasterdClient
 from worker import start_worker
 
@@ -39,30 +38,9 @@ def shutdown_session(exception=None):
     db_session.remove()
 
 
-# --- Auth routes ---
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = None
-    if request.method == "POST":
-        if check_password(request.form.get("password", "")):
-            session["authenticated"] = True
-            next_url = request.args.get("next", "/")
-            return redirect(next_url)
-        error = "Invalid password"
-    return render_template("login.html", error=error)
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
 # --- Dashboard ---
 
 @app.route("/")
-@login_required
 def index():
     downloads = db_session.query(Download).order_by(
         # downloading first, then queued, then processing, then complete/failed
@@ -75,13 +53,11 @@ def index():
 # --- Download CRUD ---
 
 @app.route("/download/add")
-@login_required
 def add_download_form():
     return render_template("add.html")
 
 
 @app.route("/download", methods=["POST"])
-@login_required
 def add_download():
     title = request.form.get("title", "").strip()
     if not title:
@@ -105,7 +81,6 @@ def add_download():
 
 
 @app.route("/download/<int:download_id>")
-@login_required
 def download_detail(download_id):
     dl = db_session.get(Download, download_id)
     if dl is None:
@@ -114,7 +89,6 @@ def download_detail(download_id):
 
 
 @app.route("/download/<int:download_id>/retry", methods=["POST"])
-@login_required
 def retry_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl and dl.status in ("failed", "cancelled"):
@@ -128,7 +102,6 @@ def retry_download(download_id):
 
 
 @app.route("/download/<int:download_id>/cancel", methods=["POST"])
-@login_required
 def cancel_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl and dl.status in ("queued", "downloading"):
@@ -139,7 +112,6 @@ def cancel_download(download_id):
 
 
 @app.route("/download/<int:download_id>/delete", methods=["POST"])
-@login_required
 def delete_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl:
@@ -149,7 +121,6 @@ def delete_download(download_id):
 
 
 @app.route("/download/<int:download_id>/clear509", methods=["POST"])
-@login_required
 def clear509(download_id):
     try:
         mb_client.clear509()
@@ -161,7 +132,6 @@ def clear509(download_id):
 # --- API ---
 
 @app.route("/api/status")
-@login_required
 def api_status():
     downloads = db_session.query(Download).order_by(
         Download.status.desc(),

@@ -17,8 +17,7 @@ PLEX_TV_DIR = _env("PLEX_TV_DIR")
 NTFY_TOPIC = _env("NTFY_TOPIC")
 NTFY_SERVER = _env("NTFY_SERVER", "https://ntfy.sh")
 
-# Authentication
-PASSWORD_HASH = _env("PASSWORD_HASH")
+# Authentication (CSRF token signing)
 SECRET_KEY = _env("SECRET_KEY")
 
 # Server
@@ -32,7 +31,6 @@ _REQUIRED = {
     "PLEX_MOVIES_DIR": PLEX_MOVIES_DIR,
     "PLEX_TV_DIR": PLEX_TV_DIR,
     "NTFY_TOPIC": NTFY_TOPIC,
-    "PASSWORD_HASH": PASSWORD_HASH,
     "SECRET_KEY": SECRET_KEY,
 }
 

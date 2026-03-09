@@ -93,21 +93,12 @@ cd ..\megaqueue
 pip install -r requirements.txt
 ```
 
-#### Generate a password hash
-
-```powershell
-python hashpw.py
-```
-
-Enter your desired password when prompted and copy the bcrypt hash it outputs.
-
 #### Create a `.env` file
 
 Create `megaqueue/.env` with your configuration:
 
 ```
 MEGAQUEUE_SECRET_KEY=change-me-to-a-random-string-at-least-32-chars
-MEGAQUEUE_PASSWORD_HASH=$2b$12$your-hash-from-above
 MEGAQUEUE_PLEX_MOVIES_DIR=D:/Plex/Movies
 MEGAQUEUE_PLEX_TV_DIR=D:/Plex/TV Shows
 MEGAQUEUE_NTFY_TOPIC=megaqueue-change-me-to-something-random
@@ -186,7 +177,9 @@ nssm remove megaqueue        # uninstall the service
 
 You can also manage them from the Windows Services panel (`services.msc`).
 
-### 7. Remote access via Cloudflare Tunnel (optional)
+### 7. Remote access via Cloudflare Tunnel + Zero Trust
+
+#### Create the tunnel
 
 1. Sign up for Cloudflare and add a domain
 2. Download cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
@@ -216,12 +209,36 @@ ingress:
 cloudflared service install
 ```
 
-Now access MegaQueue at `https://queue.yourdomain.com` from anywhere.
+#### Secure with Cloudflare Zero Trust + WARP
+
+Instead of a password, MegaQueue uses Cloudflare Zero Trust to authenticate devices. Only devices running Cloudflare WARP and enrolled in your Zero Trust org can access the app.
+
+1. Go to the **Cloudflare Zero Trust dashboard** (https://one.dash.cloudflare.com)
+2. **Settings > WARP Client > Device enrollment**:
+   - Add an enrollment policy: **Allow** > **Emails** > your email address
+3. **Access > Applications > Add an application**:
+   - Type: Self-hosted
+   - Application domain: `queue.yourdomain.com`
+   - Policy: **Allow** > **Require** > **WARP** (ensures device must be running WARP)
+   - Optionally also require specific emails for extra control
+4. **Install WARP on your devices**:
+   - iPhone: Install "1.1.1.1: Faster Internet" from the App Store
+   - Open the app, go to Settings > Account > Login to Cloudflare Zero Trust
+   - Enter your team name and authenticate with your email
+5. Visit `https://queue.yourdomain.com` — no login page, just works
+
+#### Granting access to a friend
+
+1. In Zero Trust dashboard, go to **Settings > WARP Client > Device enrollment**
+2. Add their email to the enrollment policy (e.g., **Emails** > `friend@email.com`)
+3. Have them install the WARP app and enroll with their email
+4. They can now access `https://queue.yourdomain.com` seamlessly
+
+To revoke access, remove their email from the enrollment policy. All free-tier (up to 50 users).
 
 ## Usage
 
 1. Open MegaQueue on your phone (LAN IP or Cloudflare domain)
-2. Log in with your password
-3. Tap "+ Add", enter the title, year, type, and paste mega.nz links
+2. Tap "+ Add", enter the title, year, type, and paste mega.nz links
 4. MegaQueue submits to megabasterd, tracks progress, organizes into Plex folders
 5. Get a push notification on your phone when it's ready
