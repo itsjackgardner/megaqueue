@@ -169,12 +169,8 @@ nssm set megaqueue Start SERVICE_AUTO_START
 Set environment variables from your `.env` file:
 
 ```powershell
-nssm set megaqueue AppEnvironmentExtra ^
-    MEGAQUEUE_SECRET_KEY=your-secret-key ^
-    MEGAQUEUE_PASSWORD_HASH=your-hash ^
-    MEGAQUEUE_PLEX_MOVIES_DIR=D:/Plex/Movies ^
-    "MEGAQUEUE_PLEX_TV_DIR=D:/Plex/TV Shows" ^
-    MEGAQUEUE_NTFY_TOPIC=your-topic
+$envVars = (Get-Content megaqueue\.env | Where-Object { $_ -match "^[^#=]+=.+" }) -join " "
+nssm set megaqueue AppEnvironmentExtra $envVars
 ```
 
 #### Manage the services
