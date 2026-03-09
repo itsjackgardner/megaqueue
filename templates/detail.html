@@ -1,87 +1,104 @@
-{% extends "base.html" %}
-{% block title_suffix %} — {{ download.title }}{% endblock %}
-{% block content %}
+{% extends "base.html" %} {% block title_suffix %} — {{ download.title }}{%
+endblock %} {% block content %}
 <div class="mb-4">
-    <a href="/" class="text-sm text-gray-400 hover:text-white">&larr; Back to dashboard</a>
+  <a href="/" class="text-sm text-gray-400 hover:text-white"
+    >&larr; Back to dashboard</a
+  >
 </div>
 
 <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-    <h1 class="text-xl font-bold mb-1">{{ download.title }}{% if download.year %} ({{ download.year }}){% endif %}</h1>
+  <h1 class="text-xl font-bold mb-1">
+    {{ download.title }}{% if download.year %} ({{ download.year }}){% endif %}
+  </h1>
 
-    <div class="flex items-center gap-2 mb-4">
-        <span class="text-xs px-2 py-0.5 rounded-full
-            {% if download.status == 'downloading' %}bg-blue-900 text-blue-300
-            {% elif download.status == 'queued' %}bg-yellow-900 text-yellow-300
-            {% elif download.status == 'processing' %}bg-purple-900 text-purple-300
-            {% elif download.status == 'complete' %}bg-green-900 text-green-300
-            {% elif download.status == 'failed' %}bg-red-900 text-red-300
-            {% elif download.status == 'cancelled' %}bg-gray-700 text-gray-400
-            {% endif %}">{{ download.status }}</span>
-        <span class="text-xs text-gray-500">{{ download.media_type }}</span>
+  <div class="flex items-center gap-2 mb-4">
+    <span
+      class="text-xs px-2 py-0.5 rounded-full {% if download.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif download.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif download.status == 'processing' %}bg-purple-900 text-purple-300 {% elif download.status == 'complete' %}bg-green-900 text-green-300 {% elif download.status == 'failed' %}bg-red-900 text-red-300 {% elif download.status == 'cancelled' %}bg-gray-700 text-gray-400 {% endif %}"
+      >{{ download.status }}</span
+    >
+    <span class="text-xs text-gray-500">{{ download.media_type }}</span>
+  </div>
+
+  {% if download.status == 'downloading' and download.total_bytes > 0 %} {% set
+  pct = (download.progress_bytes / download.total_bytes * 100) | round(1) %}
+  <div class="mb-4">
+    <div class="w-full bg-gray-700 rounded-full h-2">
+      <div class="bg-blue-500 h-2 rounded-full" style="width: {{ pct }}%"></div>
+    </div>
+    <div class="flex justify-between text-xs text-gray-400 mt-1">
+      <span
+        >{{ (download.progress_bytes / 1048576) | round(1) }} MB / {{
+        (download.total_bytes / 1048576) | round(1) }} MB</span
+      >
+      <span
+        >{{ pct }}%{% if download.speed > 0 %} &middot; {{ (download.speed /
+        1048576) | round(1) }} MB/s{% endif %}</span
+      >
+    </div>
+  </div>
+  {% endif %} {% if download.error_message %}
+  <div
+    class="bg-red-900/30 border border-red-800 rounded p-3 mb-4 text-sm text-red-300"
+  >
+    {{ download.error_message }}
+  </div>
+  {% endif %}
+
+  <div class="space-y-3 text-sm">
+    <div>
+      <span class="text-gray-400">Links:</span>
+      <ul class="mt-1 space-y-1">
+        {% for link in download.links %}
+        <li class="font-mono text-xs text-gray-300 break-all">{{ link }}</li>
+        {% endfor %}
+      </ul>
     </div>
 
-    {% if download.status == 'downloading' and download.total_bytes > 0 %}
-    {% set pct = (download.progress_bytes / download.total_bytes * 100) | round(1) %}
-    <div class="mb-4">
-        <div class="w-full bg-gray-700 rounded-full h-2">
-            <div class="bg-blue-500 h-2 rounded-full" style="width: {{ pct }}%"></div>
-        </div>
-        <div class="flex justify-between text-xs text-gray-400 mt-1">
-            <span>{{ (download.progress_bytes / 1048576) | round(1) }} MB / {{ (download.total_bytes / 1048576) | round(1) }} MB</span>
-            <span>{{ pct }}%{% if download.speed > 0 %} &middot; {{ (download.speed / 1048576) | round(1) }} MB/s{% endif %}</span>
-        </div>
+    {% if download.file_paths %}
+    <div>
+      <span class="text-gray-400">Files:</span>
+      <ul class="mt-1 space-y-1">
+        {% for path in download.file_paths %}
+        <li class="font-mono text-xs text-gray-300 break-all">{{ path }}</li>
+        {% endfor %}
+      </ul>
     </div>
     {% endif %}
 
-    {% if download.error_message %}
-    <div class="bg-red-900/30 border border-red-800 rounded p-3 mb-4 text-sm text-red-300">
-        {{ download.error_message }}
+    <div class="text-xs text-gray-500">
+      Created: {{ download.created_at.strftime('%Y-%m-%d %H:%M') if
+      download.created_at else 'N/A' }}
     </div>
+  </div>
+
+  <div class="mt-4 flex gap-2">
+    {% if download.status in ('failed', 'cancelled') %}
+    <form method="POST" action="/download/{{ download.id }}/retry">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button
+        class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded"
+      >
+        Retry
+      </button>
+    </form>
+    {% endif %} {% if download.status in ('queued', 'downloading') %}
+    <form method="POST" action="/download/{{ download.id }}/cancel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button
+        class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded"
+      >
+        Cancel
+      </button>
+    </form>
     {% endif %}
-
-    <div class="space-y-3 text-sm">
-        <div>
-            <span class="text-gray-400">Links:</span>
-            <ul class="mt-1 space-y-1">
-                {% for link in download.links %}
-                <li class="font-mono text-xs text-gray-300 break-all">{{ link }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-
-        {% if download.file_paths %}
-        <div>
-            <span class="text-gray-400">Files:</span>
-            <ul class="mt-1 space-y-1">
-                {% for path in download.file_paths %}
-                <li class="font-mono text-xs text-gray-300 break-all">{{ path }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-
-        <div class="text-xs text-gray-500">
-            Created: {{ download.created_at.strftime('%Y-%m-%d %H:%M') if download.created_at else 'N/A' }}
-        </div>
-    </div>
-
-    <div class="mt-4 flex gap-2">
-        {% if download.status in ('failed', 'cancelled') %}
-        <form method="POST" action="/download/{{ download.id }}/retry">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded">Retry</button>
-        </form>
-        {% endif %}
-        {% if download.status in ('queued', 'downloading') %}
-        <form method="POST" action="/download/{{ download.id }}/cancel">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded">Cancel</button>
-        </form>
-        {% endif %}
-        <form method="POST" action="/download/{{ download.id }}/delete">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="text-sm bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-300 px-3 py-1.5 rounded">Delete</button>
-        </form>
-    </div>
+    <form method="POST" action="/download/{{ download.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button
+        class="text-sm bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-300 px-3 py-1.5 rounded"
+      >
+        Delete
+      </button>
+    </form>
+  </div>
 </div>
 {% endblock %}
