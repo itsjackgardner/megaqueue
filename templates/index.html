@@ -3,7 +3,7 @@
   {% if not downloads %}
   <div class="text-center text-gray-500 py-12">
     <p class="text-lg mb-2">No downloads yet</p>
-    <a href="/download/add" class="text-blue-400 hover:text-blue-300"
+    <a href="/download/add" class="text-indigo-400 hover:text-indigo-300"
       >Add download</a
     >
   </div>
@@ -16,7 +16,7 @@
       <div class="flex-1 min-w-0">
         <a
           href="/download/{{ dl.id }}"
-          class="font-medium text-white hover:text-blue-400 truncate block"
+          class="font-medium text-white hover:text-indigo-400 truncate block"
         >
           {{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}
         </a>
