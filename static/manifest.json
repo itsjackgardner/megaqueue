@@ -3,23 +3,13 @@
   "short_name": "movie dog",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#3B4CF6",
-  "background_color": "#111827",
+  "theme_color": "#3D4CE4",
+  "background_color": "#3D4CE4",
   "icons": [
     {
       "src": "/static/icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml"
-    },
-    {
-      "src": "/static/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/static/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
     }
   ]
 }
