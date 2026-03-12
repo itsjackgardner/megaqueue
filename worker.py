@@ -2,6 +2,7 @@ import logging
 import re
 import threading
 import time
+from datetime import datetime, timezone
 
 import config
 from models import db_session, Download
@@ -43,86 +44,8 @@ def _update_progress(download, mb_dl):
     download.speed = mb_dl.get("speed", 0)
 
 
-def _process_download(client, download):
-    """Submit a download to megabasterd and poll until complete or failed."""
-    links = download.links
-    log.info("Submitting %d link(s) for '%s' to megabasterd", len(links), download.title)
-
-    try:
-        client.start(links)
-    except Exception as e:
-        download.status = "failed"
-        download.error_message = f"Failed to submit to megabasterd: {e}"
-        db_session.commit()
-        return
-
-    download.status = "downloading"
-    db_session.commit()
-
-    # Poll for completion
-    while True:
-        time.sleep(config.MEGABASTERD_POLL_INTERVAL)
-
-        try:
-            status = client.status()
-        except Exception as e:
-            log.warning("Failed to poll megabasterd status: %s", e)
-            continue
-
-        mb_downloads = status.get("downloads", [])
-        link_set = set(links)
-        mb_dl = _find_megabasterd_download(mb_downloads, link_set)
-
-        if mb_dl is None:
-            # Download not found in megabasterd — may have been removed externally
-            # Check if we ever saw progress; if not, it might still be queuing
-            if download.progress_bytes > 0:
-                download.status = "failed"
-                download.error_message = "Download disappeared from megabasterd"
-                db_session.commit()
-                return
-            continue
-
-        _update_progress(download, mb_dl)
-        db_session.commit()
-
-        mb_status = mb_dl.get("status", "")
-
-        if mb_dl.get("finished"):
-            log.info("Download complete: '%s'", download.title)
-            download.status = "processing"
-            db_session.commit()
-            _post_process(download, mb_dl)
-            return
-
-        if mb_status == "Error":
-            download.status = "failed"
-            download.error_message = mb_dl.get("error") or "Unknown megabasterd error"
-            db_session.commit()
-            notify_failure(download)
-            return
-
-        if mb_status == "509 Bandwidth Limit Exceeded":
-            download.error_message = (
-                f"509 Bandwidth Limit — {mb_dl.get('error509Count', 0)} workers affected. "
-                "Use 'Clear 509' to retry with fresh proxies."
-            )
-            db_session.commit()
-
-        # Check if download was cancelled by user
-        db_session.refresh(download)
-        if download.status == "cancelled":
-            log.info("Download cancelled by user: '%s'", download.title)
-            try:
-                for link in links:
-                    client.stop(link, delete=True)
-            except Exception:
-                pass
-            return
-
-
-def _post_process(download, mb_dl):
-    """Organize files and send notification after download completes."""
+def _post_process(download, mb_dl, client):
+    """Organize files, send notification, and clear from megabasterd."""
     try:
         file_paths = organize_download(download)
         download.file_paths = file_paths
@@ -136,38 +59,129 @@ def _post_process(download, mb_dl):
         db_session.commit()
         notify_failure(download)
 
+    # Clear finished download from megabasterd
+    try:
+        url = mb_dl.get("url")
+        if url:
+            client.stop(url, delete=False)
+    except Exception:
+        pass
 
-def _worker_loop(client):
-    """Main worker loop — picks queued downloads and processes them."""
-    while True:
-        try:
-            download = (
-                db_session.query(Download)
-                .filter(Download.status == "queued")
-                .order_by(Download.created_at)
-                .first()
+
+def _sync_active_downloads(client, mb_downloads):
+    """Match megabasterd downloads to DB records and update state."""
+    matched_ids = set()
+
+    active = db_session.query(Download).filter(
+        Download.status.in_(("queued", "downloading"))
+    ).all()
+
+    for download in active:
+        # Pick up cancellations written by Flask
+        db_session.refresh(download)
+        if download.status == "cancelled":
+            continue
+
+        mb_dl = _find_megabasterd_download(mb_downloads, set(download.links))
+        if mb_dl is None:
+            continue
+
+        matched_ids.add(download.id)
+        _update_progress(download, mb_dl)
+
+        mb_status = mb_dl.get("status", "")
+
+        # Queued -> downloading when megabasterd starts working on it
+        if download.status == "queued" and download.progress_bytes > 0:
+            download.status = "downloading"
+            log.info("Download started: '%s'", download.title)
+
+        # Completion
+        if mb_dl.get("finished"):
+            log.info("Download complete: '%s'", download.title)
+            download.status = "processing"
+            db_session.commit()
+            _post_process(download, mb_dl, client)
+            continue
+
+        # Error
+        if mb_status == "Error":
+            download.status = "failed"
+            download.error_message = mb_dl.get("error") or "Unknown megabasterd error"
+            db_session.commit()
+            notify_failure(download)
+            continue
+
+        # 509 (non-terminal, just annotate)
+        if mb_status == "509 Bandwidth Limit Exceeded":
+            download.error_message = (
+                f"509 Bandwidth Limit — {mb_dl.get('error509Count', 0)} workers affected. "
+                "Use 'Clear 509' to retry with fresh proxies."
             )
 
-            if download is None:
-                time.sleep(2)
-                continue
+        db_session.commit()
 
-            log.info("Processing download: '%s' (id=%d)", download.title, download.id)
-            try:
-                _process_download(client, download)
-            except Exception as e:
-                log.error("Unexpected error processing download %d: %s", download.id, e)
-                try:
-                    download.status = "failed"
-                    download.error_message = f"Unexpected error: {e}"
-                    db_session.commit()
-                except Exception:
-                    db_session.rollback()
+    return matched_ids
+
+
+def _integrity_sweep(matched_ids):
+    """Fail any queued/downloading records that have gone missing from megabasterd."""
+    active = db_session.query(Download).filter(
+        Download.status.in_(("queued", "downloading"))
+    ).all()
+
+    now = datetime.now(timezone.utc)
+
+    for download in active:
+        db_session.refresh(download)
+        if download.status == "cancelled":
+            continue
+
+        if download.id in matched_ids:
+            continue
+
+        # Stamp downloading_since if missing (defensive)
+        if download.downloading_since is None:
+            download.downloading_since = now
+            db_session.commit()
+            continue
+
+        age = (now - download.downloading_since).total_seconds()
+        if age < config.MEGABASTERD_GRACE_PERIOD:
+            continue
+
+        log.warning("Download '%s' (id=%d) not found in megabasterd after %ds — marking failed",
+                     download.title, download.id, int(age))
+        download.status = "failed"
+        download.error_message = "Download disappeared from megabasterd"
+        db_session.commit()
+        notify_failure(download)
+
+
+def _poll_once(client):
+    """Single poll tick: fetch megabasterd status, sync DB, sweep for stuck records."""
+    try:
+        status = client.status()
+    except Exception as e:
+        log.warning("Failed to poll megabasterd status: %s", e)
+        return
+
+    mb_downloads = status.get("downloads", [])
+
+    matched_ids = _sync_active_downloads(client, mb_downloads)
+    _integrity_sweep(matched_ids)
+
+
+def _worker_loop(client):
+    """Main worker loop — polls megabasterd on an interval."""
+    while True:
+        try:
+            _poll_once(client)
         except Exception as e:
-            log.error("Worker loop error: %s", e)
-            time.sleep(5)
+            log.error("Worker poll error: %s", e)
         finally:
             db_session.remove()
+        time.sleep(config.MEGABASTERD_POLL_INTERVAL)
 
 
 def start_worker():

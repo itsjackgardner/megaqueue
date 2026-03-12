@@ -25,6 +25,7 @@ class Download(Base):
     progress_bytes = Column(Integer, default=0)
     total_bytes = Column(Integer, default=0)
     speed = Column(Integer, default=0)  # bytes per second
+    downloading_since = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
     _file_paths = Column("file_paths", Text, default="[]")  # JSON list of strings
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -61,6 +62,7 @@ class Download(Base):
             "progress_bytes": self.progress_bytes,
             "total_bytes": self.total_bytes,
             "speed": self.speed,
+            "downloading_since": self.downloading_since.isoformat() if self.downloading_since else None,
             "error_message": self.error_message,
             "file_paths": self.file_paths,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -79,4 +81,10 @@ def init_db():
     Base.metadata.create_all(engine)
     with engine.connect() as conn:
         conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+        # Migrate: add downloading_since if missing
+        result = conn.exec_driver_sql(
+            "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name='downloading_since'"
+        )
+        if result.scalar() == 0:
+            conn.exec_driver_sql("ALTER TABLE downloads ADD COLUMN downloading_since DATETIME")
         conn.commit()

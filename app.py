@@ -4,6 +4,8 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
+from datetime import datetime, timezone
+
 import config
 from models import db_session, init_db, Download
 from megabasterd_client import MegabasterdClient
@@ -74,6 +76,15 @@ def add_download():
 
     dl = Download(title=title, year=year, media_type=media_type)
     dl.links = links
+
+    try:
+        mb_client.start(links)
+        dl.status = "queued"
+        dl.downloading_since = datetime.now(timezone.utc)
+    except Exception as e:
+        dl.status = "failed"
+        dl.error_message = f"Failed to submit to megabasterd: {e}"
+
     db_session.add(dl)
     db_session.commit()
 
@@ -92,11 +103,16 @@ def download_detail(download_id):
 def retry_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl and dl.status in ("failed", "cancelled"):
-        dl.status = "queued"
-        dl.error_message = None
-        dl.progress_bytes = 0
-        dl.total_bytes = 0
-        dl.speed = 0
+        try:
+            mb_client.start(dl.links)
+            dl.status = "queued"
+            dl.downloading_since = datetime.now(timezone.utc)
+            dl.error_message = None
+            dl.progress_bytes = 0
+            dl.total_bytes = 0
+            dl.speed = 0
+        except Exception as e:
+            dl.error_message = f"Failed to submit to megabasterd: {e}"
         db_session.commit()
     return redirect(url_for("index"))
 
@@ -107,7 +123,11 @@ def cancel_download(download_id):
     if dl and dl.status in ("queued", "downloading"):
         dl.status = "cancelled"
         db_session.commit()
-        # If downloading, the worker loop will detect the status change and stop via API
+        try:
+            for link in dl.links:
+                mb_client.stop(link, delete=True)
+        except Exception:
+            pass
     return redirect(url_for("index"))
 
 

@@ -8,6 +8,7 @@ def _env(key, default=None):
 # Megabasterd REST API
 MEGABASTERD_API_URL = _env("MEGABASTERD_API_URL", "http://localhost:8127")
 MEGABASTERD_POLL_INTERVAL = int(_env("MEGABASTERD_POLL_INTERVAL", "5"))
+MEGABASTERD_GRACE_PERIOD = int(_env("MEGABASTERD_GRACE_PERIOD", "30"))
 
 # Plex library paths
 PLEX_MOVIES_DIR = _env("PLEX_MOVIES_DIR")
