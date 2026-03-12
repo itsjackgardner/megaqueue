@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker, relationship
@@ -55,11 +55,11 @@ class Download(Base):
     )
     downloading_since = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
     )
 
     files = relationship("DownloadFile", backref="download", cascade="all, delete-orphan", lazy="joined")
