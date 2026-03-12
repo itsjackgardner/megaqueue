@@ -32,7 +32,7 @@
         if (badge) badge.textContent = dl.status;
 
         // Update progress bar if downloading
-        if (dl.status === "downloading" && dl.total_bytes > 0) {
+        if ((dl.status === "downloading" || dl.status === "queued") && dl.total_bytes > 0) {
           const pct = ((dl.progress_bytes / dl.total_bytes) * 100).toFixed(1);
           const bar = card.querySelector(".bg-blue-500");
           if (bar) bar.style.width = pct + "%";

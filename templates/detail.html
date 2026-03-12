@@ -17,10 +17,11 @@ endblock %} {% block content %}
       >{{ download.status }}</span
     >
     <span class="text-xs text-gray-500">{{ download.media_type }}</span>
+    <span class="text-xs text-gray-500">{{ download.files | length }} file{{ 's' if download.files | length != 1 else '' }}</span>
   </div>
 
-  {% if download.status == 'downloading' and download.total_bytes > 0 %} {% set
-  pct = (download.progress_bytes / download.total_bytes * 100) | round(1) %}
+  {% if download.status in ('downloading', 'queued') and download.total_bytes > 0 %}
+  {% set pct = (download.progress_bytes / download.total_bytes * 100) | round(1) %}
   <div class="mb-4">
     <div class="w-full bg-gray-700 rounded-full h-2">
       <div class="bg-blue-500 h-2 rounded-full" style="width: {{ pct }}%"></div>
@@ -36,7 +37,9 @@ endblock %} {% block content %}
       >
     </div>
   </div>
-  {% endif %} {% if download.error_message %}
+  {% endif %}
+
+  {% if download.error_message %}
   <div
     class="bg-red-900/30 border border-red-800 rounded p-3 mb-4 text-sm text-red-300"
   >
@@ -44,34 +47,46 @@ endblock %} {% block content %}
   </div>
   {% endif %}
 
-  <div class="space-y-3 text-sm">
-    <div>
-      <span class="text-gray-400">Links:</span>
-      <ul class="mt-1 space-y-1">
-        {% for link in download.links %}
-        <li class="font-mono text-xs text-gray-300 break-all">{{ link }}</li>
-        {% endfor %}
-      </ul>
+  <!-- Per-file breakdown -->
+  <div class="space-y-2 mb-4">
+    <span class="text-sm text-gray-400">Files:</span>
+    {% for f in download.files %}
+    <div class="bg-gray-900 rounded p-3 border border-gray-700">
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <span class="text-sm text-gray-200 truncate flex-1">{{ f.name or f.url }}</span>
+        <span
+          class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap {% if f.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif f.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif f.status == 'finished' %}bg-green-900 text-green-300 {% elif f.status == 'failed' %}bg-red-900 text-red-300 {% endif %}"
+          >{{ f.status }}</span
+        >
+      </div>
+      {% if f.status == 'downloading' and f.total_bytes > 0 %}
+      {% set fpct = (f.progress_bytes / f.total_bytes * 100) | round(1) %}
+      <div class="w-full bg-gray-700 rounded-full h-1.5 mt-2">
+        <div class="bg-blue-500 h-1.5 rounded-full" style="width: {{ fpct }}%"></div>
+      </div>
+      <div class="flex justify-between text-xs text-gray-500 mt-1">
+        <span>{{ (f.progress_bytes / 1048576) | round(1) }} MB / {{ (f.total_bytes / 1048576) | round(1) }} MB</span>
+        <span>{{ fpct }}%{% if f.speed > 0 %} &middot; {{ (f.speed / 1048576) | round(1) }} MB/s{% endif %}</span>
+      </div>
+      {% elif f.status == 'finished' and f.total_bytes > 0 %}
+      <div class="text-xs text-gray-500 mt-1">{{ (f.total_bytes / 1048576) | round(1) }} MB</div>
+      {% endif %}
+      {% if f.error_message %}
+      <div class="text-xs text-red-400 mt-1">{{ f.error_message }}</div>
+      {% endif %}
+      {% if f.file_path %}
+      <div class="text-xs text-gray-500 mt-1 font-mono break-all">{{ f.file_path }}</div>
+      {% endif %}
     </div>
-
-    {% if download.file_paths %}
-    <div>
-      <span class="text-gray-400">Files:</span>
-      <ul class="mt-1 space-y-1">
-        {% for path in download.file_paths %}
-        <li class="font-mono text-xs text-gray-300 break-all">{{ path }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-
-    <div class="text-xs text-gray-500">
-      Created: {{ download.created_at.strftime('%Y-%m-%d %H:%M') if
-      download.created_at else 'N/A' }}
-    </div>
+    {% endfor %}
   </div>
 
-  <div class="mt-4 flex gap-2">
+  <div class="text-xs text-gray-500 mb-4">
+    Created: {{ download.created_at.strftime('%Y-%m-%d %H:%M') if
+    download.created_at else 'N/A' }}
+  </div>
+
+  <div class="flex gap-2">
     {% if download.status in ('failed', 'cancelled') %}
     <form method="POST" action="/download/{{ download.id }}/retry">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

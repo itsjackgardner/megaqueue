@@ -26,11 +26,15 @@
             >{{ dl.status }}</span
           >
           <span class="text-xs text-gray-500">{{ dl.media_type }}</span>
+          {% if dl.files | length > 1 %}
+          {% set finished_count = dl.files | selectattr('status', 'equalto', 'finished') | list | length %}
+          <span class="text-xs text-gray-500">{{ finished_count }}/{{ dl.files | length }} files</span>
+          {% endif %}
         </div>
       </div>
     </div>
 
-    {% if dl.status == 'downloading' %}
+    {% if dl.status in ('downloading', 'queued') %}
     <div class="mt-3">
       {% if dl.total_bytes > 0 %} {% set pct = (dl.progress_bytes /
       dl.total_bytes * 100) | round(1) %}
