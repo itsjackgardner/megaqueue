@@ -4,10 +4,10 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import config
-from models import db_session, init_db, Download
+from models import db_session, init_db, Download, DownloadFile
 from megabasterd_client import MegabasterdClient
 from worker import start_worker
 
@@ -75,12 +75,13 @@ def add_download():
         return redirect(url_for("index"))
 
     dl = Download(title=title, year=year, media_type=media_type)
-    dl.links = links
+    for link in links:
+        dl.files.append(DownloadFile(url=link))
 
     try:
         mb_client.start(links)
         dl.status = "queued"
-        dl.downloading_since = datetime.now(timezone.utc)
+        dl.downloading_since = datetime.utcnow()
     except Exception as e:
         dl.status = "failed"
         dl.error_message = f"Failed to submit to megabasterd: {e}"
@@ -106,11 +107,14 @@ def retry_download(download_id):
         try:
             mb_client.start(dl.links)
             dl.status = "queued"
-            dl.downloading_since = datetime.now(timezone.utc)
+            dl.downloading_since = datetime.utcnow()
             dl.error_message = None
-            dl.progress_bytes = 0
-            dl.total_bytes = 0
-            dl.speed = 0
+            for f in dl.files:
+                f.status = "queued"
+                f.progress_bytes = 0
+                f.total_bytes = 0
+                f.speed = 0
+                f.error_message = None
         except Exception as e:
             dl.error_message = f"Failed to submit to megabasterd: {e}"
         db_session.commit()
