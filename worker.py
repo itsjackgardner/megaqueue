@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 import time
 
@@ -11,10 +12,26 @@ from notifications import notify_completion, notify_failure
 log = logging.getLogger(__name__)
 
 
+def _normalize_mega_url(url):
+    """Extract (id, key) from either mega.nz URL format for comparison.
+
+    Old format: https://mega.nz/#!{id}!{key}
+    New format: https://mega.nz/file/{id}#{key}
+    """
+    m = re.match(r"https?://mega\.nz/#!([^!]+)!(.+)", url)
+    if m:
+        return f"{m.group(1)}#{m.group(2)}"
+    m = re.match(r"https?://mega\.nz/file/([^#]+)#(.+)", url)
+    if m:
+        return f"{m.group(1)}#{m.group(2)}"
+    return url
+
+
 def _find_megabasterd_download(mb_downloads, mega_urls):
     """Match a MegaQueue download's URLs against megabasterd's status list."""
+    normalized = {_normalize_mega_url(u) for u in mega_urls}
     for mb_dl in mb_downloads:
-        if mb_dl.get("url") in mega_urls:
+        if _normalize_mega_url(mb_dl.get("url", "")) in normalized:
             return mb_dl
     return None
 
