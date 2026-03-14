@@ -32,20 +32,45 @@ def _normalize_mega_url(url):
     return url
 
 
+def _extract_folder_id(url):
+    """Extract the mega.nz folder ID from a URL.
+
+    Handles two patterns:
+    - Folder URL: https://mega.nz/folder/{folderId}#key  -> folderId
+    - Per-file URL with suffix: ...###n={folderId}        -> folderId
+
+    Returns None if neither pattern matches.
+    """
+    m = re.search(r"###n=([^#&]+)", url)
+    if m:
+        return m.group(1)
+    m = re.match(r"https?://mega\.nz/folder/([^#?/]+)", url)
+    if m:
+        return m.group(1)
+    return None
+
+
 def _match_megabasterd_files(mb_downloads, download_files):
     """Match megabasterd entries to DownloadFile records.
 
-    Uses two-tier matching:
+    Uses three-tier matching:
     1. Direct URL match (for single file downloads)
-    2. sourceUrl match (for folder-split downloads)
+    2. sourceUrl match (forward-compat shim; not currently returned by megabasterd)
+    3. Folder-ID match: extract ###n={folderId} from per-file URL, match against
+       DownloadFile records with mega.nz/folder/{folderId} URLs
 
     Returns dict: DownloadFile.id -> list[megabasterd entry].
     A single DownloadFile may match multiple megabasterd entries (folder splits).
     """
     # Build lookup: normalized URL -> DownloadFile
     file_by_norm = {}
+    # Build secondary lookup: folder ID -> DownloadFile (for folder URLs only)
+    file_by_folder_id = {}
     for df in download_files:
         file_by_norm[_normalize_mega_url(df.url)] = df
+        folder_id = _extract_folder_id(df.url)
+        if folder_id and "mega.nz/folder/" in df.url:
+            file_by_folder_id[folder_id] = df
 
     matched = {}  # df.id -> list[mb_entry]
 
@@ -54,10 +79,16 @@ def _match_megabasterd_files(mb_downloads, download_files):
         norm = _normalize_mega_url(mb_dl.get("url", ""))
         df = file_by_norm.get(norm)
 
-        # Tier 2: match by sourceUrl (folder-split entries)
+        # Tier 2: match by sourceUrl (folder-split entries; not currently returned)
         if df is None:
             source_norm = _normalize_mega_url(mb_dl.get("sourceUrl", ""))
             df = file_by_norm.get(source_norm)
+
+        # Tier 3: match by folder ID extracted from ###n={folderId} suffix
+        if df is None:
+            folder_id = _extract_folder_id(mb_dl.get("url", ""))
+            if folder_id:
+                df = file_by_folder_id.get(folder_id)
 
         if df is not None:
             matched.setdefault(df.id, []).append(mb_dl)

@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from models import Download, DownloadFile
 from worker import (
     _normalize_mega_url,
+    _extract_folder_id,
     _match_megabasterd_files,
     _derive_download_status,
     _update_file_from_megabasterd,
@@ -41,6 +42,27 @@ def test_normalize_folder_file_format():
 def test_normalize_passthrough_unknown():
     url = "https://example.com/unknown"
     assert _normalize_mega_url(url) == url
+
+
+# --- Folder ID Extraction ---
+
+def test_extract_folder_id_from_folder_url():
+    url = "https://mega.nz/folder/LAlWVZbQ#HUccRplmJSvCF-9bOuyFJg"
+    assert _extract_folder_id(url) == "LAlWVZbQ"
+
+
+def test_extract_folder_id_from_per_file_url():
+    url = "https://mega.nz/#N!HIkkFLQZ!9lZBceIU9TmzfU4QrMoPbjVsQsLACzxMHt_wy7CI4bg###n=LAlWVZbQ"
+    assert _extract_folder_id(url) == "LAlWVZbQ"
+
+
+def test_extract_folder_id_plain_file_url_returns_none():
+    url = "https://mega.nz/file/abc123#key456"
+    assert _extract_folder_id(url) is None
+
+
+def test_extract_folder_id_empty_string_returns_none():
+    assert _extract_folder_id("") is None
 
 
 # --- File Matching ---
@@ -88,6 +110,43 @@ def test_match_by_source_url(db_session):
 
     assert df.id in matched
     assert len(matched[df.id]) == 2
+
+
+def test_match_folder_url_via_folder_id(db_session):
+    """Folder-split entries match via ###n={folderId} suffix (Tier 3)."""
+    folder_url = "https://mega.nz/folder/LAlWVZbQ#HUccRplmJSvCF-9bOuyFJg"
+    dl = Download(title="Industry S01", media_type="tv")
+    df = DownloadFile(url=folder_url)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [
+        {"url": f"https://mega.nz/#N!id{i}!key{i}###n=LAlWVZbQ", "name": f"S01E0{i}.mkv",
+         "bytesLoaded": 0, "bytesTotal": 1000, "speed": 0, "finished": False, "status": "Downloading"}
+        for i in range(1, 9)
+    ]
+    matched = _match_megabasterd_files(mb_downloads, dl.files)
+
+    assert df.id in matched
+    assert len(matched[df.id]) == 8
+
+
+def test_match_tier1_unaffected_by_tier3(db_session):
+    """Tier 1 direct URL match still works when Tier 3 logic is present."""
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc123#key1")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [{"url": "https://mega.nz/file/abc123#key1", "name": "movie.mkv",
+                     "bytesLoaded": 500, "bytesTotal": 1000, "speed": 100,
+                     "finished": False, "status": "Downloading"}]
+    matched = _match_megabasterd_files(mb_downloads, dl.files)
+
+    assert df.id in matched
+    assert len(matched[df.id]) == 1
 
 
 def test_match_no_match(db_session):
