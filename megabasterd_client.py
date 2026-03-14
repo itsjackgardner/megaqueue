@@ -13,12 +13,13 @@ class MegabasterdClient:
     def __init__(self, base_url=None, timeout=10):
         self.base_url = (base_url or config.MEGABASTERD_API_URL).rstrip("/")
         self.timeout = timeout
+        self.session = requests.Session()
 
     def _request(self, method, path, **kwargs):
         url = f"{self.base_url}{path}"
         kwargs.setdefault("timeout", self.timeout)
         try:
-            resp = requests.request(method, url, **kwargs)
+            resp = self.session.request(method, url, **kwargs)
             resp.raise_for_status()
             return resp.json()
         except requests.ConnectionError:
