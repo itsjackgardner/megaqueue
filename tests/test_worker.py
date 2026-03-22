@@ -6,8 +6,10 @@ from worker import (
     _normalize_mega_url,
     _extract_folder_id,
     _match_megabasterd_files,
+    _maybe_expand_folder_files,
     _derive_download_status,
     _update_file_from_megabasterd,
+    _resolve_source_paths,
     _sync_active_downloads,
     _integrity_sweep,
 )
@@ -309,8 +311,8 @@ def test_update_multi_entry_aggregation(db_session):
 
 @patch("worker.notify_failure")
 @patch("worker.notify_completion")
-@patch("worker.organize_download")
-def test_sync_transitions_to_downloading(mock_organize, mock_notify_ok, mock_notify_fail, db_session):
+@patch("worker.filebot_organizer")
+def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
     dl = Download(title="Test", media_type="movie", status="queued")
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
     db_session.add(dl)
@@ -331,8 +333,10 @@ def test_sync_transitions_to_downloading(mock_organize, mock_notify_ok, mock_not
 
 @patch("worker.notify_failure")
 @patch("worker.notify_completion")
-@patch("worker.organize_download", return_value=["/dest/movie.mkv"])
-def test_sync_triggers_post_processing(mock_organize, mock_notify_ok, mock_notify_fail, db_session):
+@patch("worker.filebot_organizer")
+def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
+    mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
+
     dl = Download(title="Test", media_type="movie", status="downloading")
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status="queued"))
     db_session.add(dl)
@@ -341,7 +345,7 @@ def test_sync_triggers_post_processing(mock_organize, mock_notify_ok, mock_notif
     mb_downloads = [
         {"url": "https://mega.nz/file/abc#key", "name": "movie.mkv",
          "bytesLoaded": 1000, "bytesTotal": 1000, "speed": 0,
-         "finished": True, "status": "OK", "path": "movie.mkv"}
+         "finished": True, "status": "OK"}
     ]
 
     client = MagicMock()
@@ -349,8 +353,150 @@ def test_sync_triggers_post_processing(mock_organize, mock_notify_ok, mock_notif
 
     db_session.refresh(dl)
     assert dl.status == "complete"
-    mock_organize.assert_called_once()
+    mock_fb.organize_download.assert_called_once()
     mock_notify_ok.assert_called_once()
+
+
+# --- Folder Expansion ---
+
+def test_expand_folder_files_creates_children(db_session):
+    """First tick with folder split creates child DownloadFile records."""
+    folder_url = "https://mega.nz/folder/abc123#key"
+    dl = Download(title="Show", media_type="tv")
+    df = DownloadFile(url=folder_url)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_entries = [
+        {"url": f"https://mega.nz/#N!id{i}!key{i}###n=abc123", "name": f"ep0{i}.mkv"}
+        for i in range(1, 4)
+    ]
+    initial_matches = {df.id: mb_entries}
+
+    _maybe_expand_folder_files(dl, initial_matches)
+    db_session.flush()
+    db_session.refresh(dl)
+
+    assert len(df.children) == 3
+    child_names = {c.name for c in df.children}
+    assert "ep01.mkv" in child_names
+    assert "ep02.mkv" in child_names
+    assert "ep03.mkv" in child_names
+
+
+def test_expand_folder_files_idempotent(db_session):
+    """Second tick with existing children does not create duplicates."""
+    folder_url = "https://mega.nz/folder/abc123#key"
+    dl = Download(title="Show", media_type="tv")
+    df = DownloadFile(url=folder_url)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    # Create children manually (simulating prior expansion)
+    child = DownloadFile(
+        download_id=dl.id, parent_id=df.id,
+        url="https://mega.nz/#N!id1!key1###n=abc123", name="ep01.mkv", status="queued",
+    )
+    db_session.add(child)
+    db_session.commit()
+    db_session.refresh(df)
+
+    mb_entries = [
+        {"url": "https://mega.nz/#N!id1!key1###n=abc123", "name": "ep01.mkv"},
+        {"url": "https://mega.nz/#N!id2!key2###n=abc123", "name": "ep02.mkv"},
+    ]
+    initial_matches = {df.id: mb_entries}
+
+    _maybe_expand_folder_files(dl, initial_matches)
+    db_session.flush()
+    db_session.refresh(df)
+
+    # Still only 1 child (idempotent)
+    assert len(df.children) == 1
+
+
+def test_expand_does_not_expand_non_folder_urls(db_session):
+    """Non-folder URLs are not expanded even if matched by multiple entries."""
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    initial_matches = {df.id: [
+        {"url": "https://mega.nz/file/abc#key", "name": "movie.mkv"},
+    ]}
+
+    _maybe_expand_folder_files(dl, initial_matches)
+    db_session.flush()
+    db_session.refresh(df)
+
+    assert len(df.children) == 0
+
+
+# --- Resolve Source Paths ---
+
+def test_resolve_source_paths_from_leaf_names(db_session, tmp_path):
+    """Source paths are resolved from DownloadFile.name for leaf files."""
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name="movie.mkv", status="finished")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("worker.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        paths = _resolve_source_paths(dl)
+
+    assert len(paths) == 1
+    assert paths[0] == tmp_path / "movie.mkv"
+
+
+def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
+    """For expanded folder downloads, paths come from children not the parent."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key", status="queued")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    # Add children
+    for i in range(1, 3):
+        child = DownloadFile(
+            download_id=dl.id, parent_id=folder_df.id,
+            url=f"https://mega.nz/#N!id{i}!k{i}###n=abc",
+            name=f"ep0{i}.mkv", status="finished",
+        )
+        db_session.add(child)
+    db_session.commit()
+    db_session.refresh(dl)
+
+    with patch("worker.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        paths = _resolve_source_paths(dl)
+
+    assert len(paths) == 2
+    assert tmp_path / "ep01.mkv" in paths
+    assert tmp_path / "ep02.mkv" in paths
+
+
+def test_resolve_source_paths_raises_when_name_missing(db_session, tmp_path):
+    """Raises ValueError when a leaf file has no name set."""
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name=None, status="finished")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("worker.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        with pytest.raises(ValueError, match="name not set"):
+            _resolve_source_paths(dl)
+
+
+import pytest
 
 
 # --- Integrity Sweep ---

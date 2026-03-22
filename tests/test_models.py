@@ -91,3 +91,123 @@ def test_to_dict(db_session):
     assert d["year"] == 2024
     assert len(d["files"]) == 1
     assert "progress_bytes" in d
+
+
+# --- parent_id / children ---
+
+def test_parent_id_cascade_delete(db_session):
+    """Deleting a parent DownloadFile also deletes its children."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child = DownloadFile(
+        download_id=dl.id,
+        parent_id=folder_df.id,
+        url="https://mega.nz/#N!id1!k1###n=abc",
+        name="ep01.mkv",
+    )
+    db_session.add(child)
+    db_session.commit()
+    child_id = child.id
+
+    db_session.delete(folder_df)
+    db_session.commit()
+
+    assert db_session.get(DownloadFile, child_id) is None
+
+
+def test_leaf_files_returns_children_not_parent(db_session):
+    """leaf_files returns child records, not the parent folder record."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child1 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u1", name="ep01.mkv")
+    child2 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u2", name="ep02.mkv")
+    db_session.add_all([child1, child2])
+    db_session.commit()
+    db_session.refresh(dl)
+
+    leaf = dl.leaf_files
+    assert len(leaf) == 2
+    assert folder_df not in leaf
+    assert child1 in leaf
+    assert child2 in leaf
+
+
+def test_leaf_files_falls_back_to_direct_files_before_expansion(db_session):
+    """Before folder expansion, leaf_files returns the top-level folder record."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    leaf = dl.leaf_files
+    assert leaf == [folder_df]
+
+
+def test_links_returns_only_top_level_urls(db_session):
+    """links property excludes child URLs (per-file from megabasterd folder splits)."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child = DownloadFile(
+        download_id=dl.id, parent_id=folder_df.id,
+        url="https://mega.nz/#N!id1!k1###n=abc", name="ep01.mkv",
+    )
+    db_session.add(child)
+    db_session.commit()
+    db_session.refresh(dl)
+
+    assert dl.links == ["https://mega.nz/folder/abc#key"]
+
+
+def test_progress_bytes_aggregates_leaf_files_only(db_session):
+    """progress_bytes uses leaf files, not the parent folder record."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key",
+                             progress_bytes=999, total_bytes=999)
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child1 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u1", progress_bytes=300, total_bytes=500)
+    child2 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u2", progress_bytes=200, total_bytes=400)
+    db_session.add_all([child1, child2])
+    db_session.commit()
+    db_session.refresh(dl)
+
+    assert dl.progress_bytes == 500
+    assert dl.total_bytes == 900
+
+
+def test_to_dict_files_returns_leaf_files(db_session):
+    """to_dict 'files' key contains leaf files (children), not parent folder record."""
+    dl = Download(title="Show", media_type="tv")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                         url="u1", name="ep01.mkv")
+    db_session.add(child)
+    db_session.commit()
+    db_session.refresh(dl)
+
+    d = dl.to_dict()
+    assert len(d["files"]) == 1
+    assert d["files"][0]["name"] == "ep01.mkv"

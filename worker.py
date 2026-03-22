@@ -8,7 +8,7 @@ from datetime import datetime
 import config
 from models import db_session, Download, DownloadFile
 from megabasterd_client import MegabasterdClient
-from organizer import organize_download
+import filebot_organizer
 from notifications import notify_completion, notify_failure
 
 log = logging.getLogger(__name__)
@@ -96,6 +96,44 @@ def _match_megabasterd_files(mb_downloads, download_files):
     return matched
 
 
+def _maybe_expand_folder_files(download, initial_matches):
+    """Expand folder-URL DownloadFiles into per-file child records.
+
+    When a folder URL DownloadFile matches multiple megabasterd entries (folder split)
+    and has no existing children, creates one child DownloadFile per megabasterd entry.
+    The children track individual file progress; the parent becomes a container.
+
+    Idempotent: skips files that already have children.
+    """
+    for df in list(download.top_level_files):
+        if df.children:
+            continue  # already expanded
+        mb_entries = initial_matches.get(df.id, [])
+        if not mb_entries:
+            continue
+        if "mega.nz/folder/" not in df.url:
+            continue  # only expand folder URLs
+
+        for mb_dl in mb_entries:
+            child = DownloadFile(
+                download_id=download.id,
+                parent_id=df.id,
+                url=mb_dl.get("url", ""),
+                name=mb_dl.get("name"),
+                status="queued",
+                progress_bytes=0,
+                total_bytes=0,
+                speed=0,
+            )
+            db_session.add(child)
+
+        log.info(
+            "Expanded folder '%s' into %d child DownloadFile records",
+            df.url,
+            len(mb_entries),
+        )
+
+
 def _update_file_from_megabasterd(df, mb_entries):
     """Update a DownloadFile's progress and status from one or more megabasterd entries."""
     total_progress = 0
@@ -147,37 +185,31 @@ def _update_file_from_megabasterd(df, mb_entries):
         df.status = "downloading"
 
 
-def _resolve_source_paths(download, file_matches):
-    """Resolve source file paths from megabasterd entries for post-processing.
+def _resolve_source_paths(download):
+    """Resolve source file paths from DownloadFile.name fields for post-processing.
 
-    Returns list of Path objects for all files to organize.
+    Returns list of Path objects for all leaf files to organize.
     """
     download_dir = Path(config.MEGABASTERD_DOWNLOAD_DIR)
     source_paths = []
 
-    for df in download.files:
-        entries = file_matches.get(df.id, [])
-        if not entries:
-            continue
-
-        for mb_dl in entries:
-            rel_path = mb_dl.get("path")
-            if not rel_path:
-                raise ValueError(
-                    f"Could not determine download file path from megabasterd "
-                    f"for '{mb_dl.get('name', 'unknown')}'"
-                )
-            source_paths.append(download_dir / rel_path)
+    for df in download.leaf_files:
+        if not df.name:
+            raise ValueError(
+                f"Could not determine download file path: DownloadFile name not set "
+                f"for id={df.id}"
+            )
+        source_paths.append(download_dir / df.name)
 
     if not source_paths:
-        raise FileNotFoundError("No source file paths resolved from megabasterd")
+        raise FileNotFoundError("No source file paths resolved")
 
     return source_paths
 
 
 def _derive_download_status(download):
-    """Compute the overall download status from individual file statuses."""
-    statuses = [f.status for f in download.files]
+    """Compute the overall download status from leaf file statuses."""
+    statuses = [f.status for f in download.leaf_files]
     if not statuses:
         return download.status
 
@@ -190,15 +222,14 @@ def _derive_download_status(download):
     return "queued"
 
 
-def _post_process(download, client, file_matches):
+def _post_process(download, client):
     """Organize files, send notification, and clear from megabasterd."""
     try:
-        source_paths = _resolve_source_paths(download, file_matches)
-        final_paths = organize_download(download, source_paths)
-        # Update file_path on each DownloadFile with destination paths
-        for i, fp in enumerate(final_paths):
-            if i < len(download.files):
-                download.files[i].file_path = fp
+        source_paths = _resolve_source_paths(download)
+        final_paths = filebot_organizer.organize_download(download, source_paths)
+        # Pair final paths with leaf files by index
+        for df, fp in zip(download.leaf_files, final_paths):
+            df.file_path = fp
         download.status = "complete"
         db_session.commit()
         notify_completion(download)
@@ -209,25 +240,15 @@ def _post_process(download, client, file_matches):
         db_session.commit()
         notify_failure(download)
 
-    # Clear finished files from megabasterd — stop both direct URLs and split entry URLs
+    # Clear all files from megabasterd — stop both top-level and child URLs
     stopped_urls = set()
     for df in download.files:
-        # Stop the original URL
-        if df.url not in stopped_urls:
+        if df.url and df.url not in stopped_urls:
             try:
                 client.stop(df.url, delete=False)
                 stopped_urls.add(df.url)
             except Exception:
                 pass
-        # Also stop any split entry URLs
-        for mb_dl in file_matches.get(df.id, []):
-            mb_url = mb_dl.get("url", "")
-            if mb_url and mb_url not in stopped_urls:
-                try:
-                    client.stop(mb_url, delete=False)
-                    stopped_urls.add(mb_url)
-                except Exception:
-                    pass
 
 
 def _sync_active_downloads(client, mb_downloads):
@@ -244,16 +265,25 @@ def _sync_active_downloads(client, mb_downloads):
         if download.status == "cancelled":
             continue
 
-        file_matches = _match_megabasterd_files(mb_downloads, download.files)
+        # Step 1: Initial match against top-level files to detect folder splits
+        initial_matches = _match_megabasterd_files(mb_downloads, download.top_level_files)
+
+        # Step 2: Expand folder splits into child DownloadFile records (idempotent)
+        _maybe_expand_folder_files(download, initial_matches)
+        db_session.flush()
+        db_session.refresh(download)
+
+        # Step 3: Match against leaf files (children after expansion, or direct files)
+        file_matches = _match_megabasterd_files(mb_downloads, download.leaf_files)
         matched_file_ids.update(file_matches.keys())
 
-        # Update each matched file (now with list of entries)
-        for df in download.files:
+        # Step 4: Update each matched leaf file
+        for df in download.leaf_files:
             mb_entries = file_matches.get(df.id)
             if mb_entries is not None:
                 _update_file_from_megabasterd(df, mb_entries)
 
-        # Derive overall status
+        # Derive overall status from leaf files
         new_status = _derive_download_status(download)
 
         if new_status == "downloading" and download.status == "queued":
@@ -263,7 +293,7 @@ def _sync_active_downloads(client, mb_downloads):
             log.info("All files finished for '%s', post-processing", download.title)
             download.status = "processing"
             db_session.commit()
-            _post_process(download, client, file_matches)
+            _post_process(download, client)
             continue
 
         if new_status == "failed" and download.status != "failed":
@@ -280,7 +310,7 @@ def _sync_active_downloads(client, mb_downloads):
 
 
 def _integrity_sweep(matched_file_ids):
-    """Fail any queued/downloading records that have gone missing from megabasterd."""
+    """Fail any queued/downloading leaf records that have gone missing from megabasterd."""
     active = db_session.query(Download).filter(
         Download.status.in_(("queued", "downloading"))
     ).all()
@@ -292,8 +322,11 @@ def _integrity_sweep(matched_file_ids):
         if download.status == "cancelled":
             continue
 
-        # Check if any files were unmatched
-        unmatched_files = [f for f in download.files if f.id not in matched_file_ids and f.status not in ("finished", "failed")]
+        # Check if any leaf files were unmatched
+        unmatched_files = [
+            f for f in download.leaf_files
+            if f.id not in matched_file_ids and f.status not in ("finished", "failed")
+        ]
         if not unmatched_files:
             continue
 

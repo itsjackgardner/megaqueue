@@ -26,9 +26,10 @@
             >{{ dl.status }}</span
           >
           <span class="text-xs text-gray-500">{{ dl.media_type }}</span>
-          {% if dl.files | length > 1 %}
-          {% set finished_count = dl.files | selectattr('status', 'equalto', 'finished') | list | length %}
-          <span class="text-xs text-gray-500">{{ finished_count }}/{{ dl.files | length }} files</span>
+          {% set display_files = dl.leaf_files %}
+          {% if display_files | length > 1 %}
+          {% set finished_count = display_files | selectattr('status', 'equalto', 'finished') | list | length %}
+          <span class="text-xs text-gray-500">{{ finished_count }}/{{ display_files | length }} files</span>
           {% endif %}
         </div>
       </div>

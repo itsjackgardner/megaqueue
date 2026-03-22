@@ -17,7 +17,7 @@ endblock %} {% block content %}
       >{{ download.status }}</span
     >
     <span class="text-xs text-gray-500">{{ download.media_type }}</span>
-    <span class="text-xs text-gray-500">{{ download.files | length }} file{{ 's' if download.files | length != 1 else '' }}</span>
+    <span class="text-xs text-gray-500">{{ download.leaf_files | length }} file{{ 's' if download.leaf_files | length != 1 else '' }}</span>
   </div>
 
   {% if download.status in ('downloading', 'queued') and download.total_bytes > 0 %}
@@ -47,10 +47,10 @@ endblock %} {% block content %}
   </div>
   {% endif %}
 
-  <!-- Per-file breakdown -->
+  <!-- Per-file breakdown — shows children for folder downloads, direct files otherwise -->
   <div class="space-y-2 mb-4">
     <span class="text-sm text-gray-400">Files:</span>
-    {% for f in download.files %}
+    {% for f in download.leaf_files %}
     <div class="bg-gray-900 rounded p-3 border border-gray-700">
       <div class="flex items-center justify-between gap-2 mb-1">
         <span class="text-sm text-gray-200 truncate flex-1">{{ f.name or f.url }}</span>

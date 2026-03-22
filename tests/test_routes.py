@@ -80,6 +80,32 @@ def test_api_status_returns_json(mock_worker, client, db_session, sample_downloa
 
 
 @patch("app.start_worker")
+def test_api_status_returns_leaf_files_for_folder_download(mock_worker, client, db_session):
+    """Folder downloads return child file entries in API, not parent folder record."""
+    dl = Download(title="Show", year=2024, media_type="tv", status="downloading")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key", status="downloading")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    child1 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u1", name="ep01.mkv", status="finished")
+    child2 = DownloadFile(download_id=dl.id, parent_id=folder_df.id,
+                          url="u2", name="ep02.mkv", status="downloading")
+    db_session.add_all([child1, child2])
+    db_session.commit()
+
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    files = data[0]["files"]
+    assert len(files) == 2
+    names = {f["name"] for f in files}
+    assert "ep01.mkv" in names
+    assert "ep02.mkv" in names
+
+
+@patch("app.start_worker")
 @patch("app.mb_client")
 def test_cancel_download(mock_mb, mock_worker, client, db_session, sample_download):
     mock_mb.stop = MagicMock()
