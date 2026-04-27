@@ -47,11 +47,20 @@ class MegabasterdClient:
         body = {"urls": urls}
         if dest:
             body["dest"] = dest
-        return self._request("POST", "/start", json=body)
+        return self._request("POST", "/start", json=body, timeout=60)
 
     def stop(self, url, delete=True):
-        """POST /stop — stop a download by its mega.nz URL."""
-        return self._request("POST", "/stop", json={"url": url, "delete": delete})
+        """POST /stop — stop a download by its mega.nz URL.
+
+        Returns None silently if the download doesn't exist (404).
+        """
+        try:
+            return self._request("POST", "/stop", json={"url": url, "delete": delete})
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                log.debug("Download not found in megabasterd (already cleared): %s", url)
+                return None
+            raise
 
     def pause(self):
         """POST /pause — pause all downloads."""

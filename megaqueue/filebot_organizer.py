@@ -95,8 +95,9 @@ def organize_download(download, source_paths):
         )
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
             raise RuntimeError(
-                f"FileBot rename failed:\n{result.stderr}"
+                f"FileBot rename failed:\n{detail}"
             )
 
         log.info("FileBot rename stdout: %s", result.stdout)

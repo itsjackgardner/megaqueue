@@ -150,10 +150,15 @@ def _update_file_from_megabasterd(df, mb_entries):
         total_size += mb_dl.get("bytesTotal", 0)
         total_speed += mb_dl.get("speed", 0)
 
-        if not mb_dl.get("finished"):
+        mb_status = mb_dl.get("status", "")
+
+        if mb_dl.get("finished"):
+            pass  # finished
+        elif "checking file integrity" in mb_status.lower():
+            pass  # integrity check means download is complete, just verifying
+        else:
             all_finished = False
 
-        mb_status = mb_dl.get("status", "")
         if mb_status == "Error":
             any_error = True
             error_message = mb_dl.get("error") or "Unknown megabasterd error"
@@ -175,6 +180,7 @@ def _update_file_from_megabasterd(df, mb_entries):
 
     if all_finished:
         df.status = "finished"
+        df.progress_bytes = df.total_bytes or total_size
         df.speed = 0
     elif any_error:
         df.status = "failed"
