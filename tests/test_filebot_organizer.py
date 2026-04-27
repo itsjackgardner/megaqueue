@@ -196,7 +196,7 @@ def test_organize_cleans_up_temp_dir_on_success(mock_run, tmp_path):
     def capturing_run(cmd, **kwargs):
         if "-extract" in cmd:
             # Capture the temp dir from the --output arg
-            out_idx = cmd.index("-output") + 1
+            out_idx = cmd.index("--output") + 1
             captured_temp.append(cmd[out_idx])
         return _make_completed_subprocess(stdout=rename_stdout)
 
