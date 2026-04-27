@@ -23,7 +23,7 @@ tests/
 ├── test_models.py               # Model creation, relationships, computed properties
 ├── test_megabasterd_client.py   # HTTP client (mocked with `responses` library)
 ├── test_worker.py               # URL normalization, file matching, status derivation
-├── test_organizer.py            # File routing, archive detection, cleanup (uses tmp_path)
+├── test_filebot_organizer.py    # FileBot file routing, archive detection, cleanup (uses tmp_path)
 ├── test_routes.py               # Flask route responses, form handling
 └── test_notifications.py        # ntfy.sh notification formatting
 ```
