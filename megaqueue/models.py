@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker, relationship
 
-import config
+from megaqueue import config
 
 Base = declarative_base()
 

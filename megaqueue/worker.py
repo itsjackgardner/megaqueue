@@ -5,11 +5,11 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-import config
-from models import db_session, Download, DownloadFile
-from megabasterd_client import MegabasterdClient
-import filebot_organizer
-from notifications import notify_completion, notify_failure
+from megaqueue import config
+from megaqueue.models import db_session, Download, DownloadFile
+from megaqueue.megabasterd_client import MegabasterdClient
+from megaqueue import filebot_organizer
+from megaqueue.notifications import notify_completion, notify_failure
 
 log = logging.getLogger(__name__)
 

@@ -1,29 +1,29 @@
 from unittest.mock import patch, MagicMock
 
-from models import Download, DownloadFile
+from megaqueue.models import Download, DownloadFile
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_dashboard_returns_200(mock_worker, client, db_session):
     resp = client.get("/")
     assert resp.status_code == 200
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_dashboard_lists_downloads(mock_worker, client, db_session, sample_download):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"Test Movie" in resp.data
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_add_download_form(mock_worker, client, db_session):
     resp = client.get("/download/add")
     assert resp.status_code == 200
 
 
-@patch("app.start_worker")
-@patch("app.mb_client")
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
 def test_create_download(mock_mb, mock_worker, client, db_session):
     mock_mb.start = MagicMock()
 
@@ -44,8 +44,8 @@ def test_create_download(mock_mb, mock_worker, client, db_session):
     mock_mb.start.assert_called_once()
 
 
-@patch("app.start_worker")
-@patch("app.mb_client")
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
 def test_create_download_empty_title_redirects(mock_mb, mock_worker, client, db_session):
     resp = client.post("/download", data={
         "title": "",
@@ -56,20 +56,20 @@ def test_create_download_empty_title_redirects(mock_mb, mock_worker, client, db_
     assert db_session.query(Download).count() == 0
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_download_detail(mock_worker, client, db_session, sample_download):
     resp = client.get(f"/download/{sample_download.id}")
     assert resp.status_code == 200
     assert b"Test Movie" in resp.data
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_download_detail_missing_redirects(mock_worker, client, db_session):
     resp = client.get("/download/999", follow_redirects=False)
     assert resp.status_code == 302
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_api_status_returns_json(mock_worker, client, db_session, sample_download):
     resp = client.get("/api/status")
     assert resp.status_code == 200
@@ -79,7 +79,7 @@ def test_api_status_returns_json(mock_worker, client, db_session, sample_downloa
     assert data[0]["title"] == "Test Movie"
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_api_status_returns_leaf_files_for_folder_download(mock_worker, client, db_session):
     """Folder downloads return child file entries in API, not parent folder record."""
     dl = Download(title="Show", year=2024, media_type="tv", status="downloading")
@@ -105,8 +105,8 @@ def test_api_status_returns_leaf_files_for_folder_download(mock_worker, client, 
     assert "ep02.mkv" in names
 
 
-@patch("app.start_worker")
-@patch("app.mb_client")
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
 def test_cancel_download(mock_mb, mock_worker, client, db_session, sample_download):
     mock_mb.stop = MagicMock()
     dl_id = sample_download.id
@@ -118,7 +118,7 @@ def test_cancel_download(mock_mb, mock_worker, client, db_session, sample_downlo
     assert dl.status == "cancelled"
 
 
-@patch("app.start_worker")
+@patch("megaqueue.app.start_worker")
 def test_delete_download(mock_worker, client, db_session, sample_download):
     dl_id = sample_download.id
     resp = client.post(f"/download/{dl_id}/delete", follow_redirects=False)

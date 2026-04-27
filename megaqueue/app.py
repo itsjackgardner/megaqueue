@@ -7,12 +7,10 @@ from flask_talisman import Talisman
 
 from datetime import datetime
 
-import config
-from models import db_session, init_db, Download, DownloadFile
-from megabasterd_client import MegabasterdClient
-from worker import start_worker
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+from megaqueue import config
+from megaqueue.models import db_session, init_db, Download, DownloadFile
+from megaqueue.megabasterd_client import MegabasterdClient
+from megaqueue.worker import start_worker
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -192,9 +190,3 @@ def create_app():
     return app
 
 
-if __name__ == "__main__":
-    from waitress import serve
-
-    application = create_app()
-    logging.getLogger().info("Starting MegaQueue on %s:%d", config.HOST, config.PORT)
-    serve(application, host=config.HOST, port=config.PORT)

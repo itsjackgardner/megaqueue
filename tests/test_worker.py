@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
-from models import Download, DownloadFile
-from worker import (
+import pytest
+
+from megaqueue.models import Download, DownloadFile
+from megaqueue.worker import (
     _normalize_mega_url,
     _extract_folder_id,
     _match_megabasterd_files,
@@ -309,9 +311,9 @@ def test_update_multi_entry_aggregation(db_session):
 
 # --- Sync Active Downloads (integration-style) ---
 
-@patch("worker.notify_failure")
-@patch("worker.notify_completion")
-@patch("worker.filebot_organizer")
+@patch("megaqueue.worker.notify_failure")
+@patch("megaqueue.worker.notify_completion")
+@patch("megaqueue.worker.filebot_organizer")
 def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
     dl = Download(title="Test", media_type="movie", status="queued")
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
@@ -331,9 +333,9 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
     assert dl.status == "downloading"
 
 
-@patch("worker.notify_failure")
-@patch("worker.notify_completion")
-@patch("worker.filebot_organizer")
+@patch("megaqueue.worker.notify_failure")
+@patch("megaqueue.worker.notify_completion")
+@patch("megaqueue.worker.filebot_organizer")
 def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
     mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
 
@@ -446,7 +448,7 @@ def test_resolve_source_paths_from_leaf_names(db_session, tmp_path):
     db_session.add(dl)
     db_session.commit()
 
-    with patch("worker.config") as mock_config:
+    with patch("megaqueue.worker.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
         paths = _resolve_source_paths(dl)
 
@@ -473,7 +475,7 @@ def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
     db_session.commit()
     db_session.refresh(dl)
 
-    with patch("worker.config") as mock_config:
+    with patch("megaqueue.worker.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
         paths = _resolve_source_paths(dl)
 
@@ -490,18 +492,15 @@ def test_resolve_source_paths_raises_when_name_missing(db_session, tmp_path):
     db_session.add(dl)
     db_session.commit()
 
-    with patch("worker.config") as mock_config:
+    with patch("megaqueue.worker.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(ValueError, match="name not set"):
             _resolve_source_paths(dl)
 
 
-import pytest
-
-
 # --- Integrity Sweep ---
 
-@patch("worker.notify_failure")
+@patch("megaqueue.worker.notify_failure")
 def test_integrity_sweep_fails_after_grace_period(mock_notify, db_session):
     dl = Download(
         title="Test", media_type="movie", status="downloading",
@@ -519,7 +518,7 @@ def test_integrity_sweep_fails_after_grace_period(mock_notify, db_session):
     assert "Disappeared" in dl.files[0].error_message
 
 
-@patch("worker.notify_failure")
+@patch("megaqueue.worker.notify_failure")
 def test_integrity_sweep_respects_grace_period(mock_notify, db_session):
     dl = Download(
         title="Test", media_type="movie", status="downloading",

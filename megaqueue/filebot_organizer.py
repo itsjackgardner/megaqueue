@@ -6,7 +6,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-import config
+from megaqueue import config
 
 log = logging.getLogger(__name__)
 

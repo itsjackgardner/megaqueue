@@ -4,7 +4,7 @@ import responses
 import pytest
 from requests.exceptions import ConnectionError
 
-from megabasterd_client import MegabasterdClient
+from megaqueue.megabasterd_client import MegabasterdClient
 
 
 @pytest.fixture

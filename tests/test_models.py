@@ -1,4 +1,4 @@
-from models import Download, DownloadFile
+from megaqueue.models import Download, DownloadFile
 
 
 def test_download_creation(db_session):

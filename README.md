@@ -68,14 +68,14 @@ cd megabasterd
 mvn package -DskipTests
 ```
 
-The executable JAR will be at `target/MegaBasterd-8.22-jar-with-dependencies.jar`.
+The executable JAR will be at `target/MegaBasterd-8.23-jar-with-dependencies.jar`.
 
 ### 3. Configure megabasterd
 
 Run it once to set up the GUI settings:
 
 ```powershell
-java -jar target/MegaBasterd-8.22-jar-with-dependencies.jar
+java -jar target/MegaBasterd-8.23-jar-with-dependencies.jar
 ```
 
 In the megabasterd settings:
@@ -129,7 +129,7 @@ foreach ($line in Get-Content .env) {
 Make sure megabasterd is already running, then:
 
 ```powershell
-python app.py
+python run.py
 ```
 
 MegaQueue starts on `http://0.0.0.0:5000`. Open it from your phone at `http://<NUC-local-IP>:5000`.
@@ -141,7 +141,7 @@ Use NSSM to run both as Windows services that start automatically and restart on
 #### Install megabasterd as a service
 
 ```powershell
-nssm install megabasterd java -jar "C:\path\to\megaqueue-dev\megabasterd\target\MegaBasterd-8.22-jar-with-dependencies.jar"
+nssm install megabasterd java -jar "C:\path\to\megaqueue-dev\megabasterd\target\MegaBasterd-8.23-jar-with-dependencies.jar"
 nssm set megabasterd AppDirectory "C:\path\to\megaqueue-dev\megabasterd"
 nssm set megabasterd DisplayName "MegaBasterd"
 nssm set megabasterd Start SERVICE_AUTO_START
@@ -150,7 +150,7 @@ nssm set megabasterd Start SERVICE_AUTO_START
 #### Install MegaQueue as a service
 
 ```powershell
-nssm install megaqueue python app.py
+nssm install megaqueue python run.py
 nssm set megaqueue AppDirectory "C:\path\to\megaqueue-dev\megaqueue"
 nssm set megaqueue DisplayName "MegaQueue"
 nssm set megaqueue DependOnService megabasterd

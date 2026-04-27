@@ -16,10 +16,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from models import Base, Download, DownloadFile
-import models
-import app as app_module
-import worker as worker_module
+from megaqueue.models import Base, Download, DownloadFile
+from megaqueue import models
+from megaqueue import app as app_module
+from megaqueue import worker as worker_module
 
 
 @pytest.fixture()
@@ -52,7 +52,7 @@ def db_session():
 @pytest.fixture()
 def app(db_session):
     """Create a Flask test app with CSRF disabled and test database."""
-    from app import app as flask_app
+    from megaqueue.app import app as flask_app
 
     flask_app.config["TESTING"] = True
     flask_app.config["WTF_CSRF_ENABLED"] = False

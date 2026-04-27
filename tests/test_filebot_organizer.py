@@ -4,8 +4,8 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 
-import filebot_organizer
-from filebot_organizer import (
+from megaqueue import filebot_organizer
+from megaqueue.filebot_organizer import (
     _is_archive,
     _parse_final_paths,
     _fallback_scan,
@@ -93,7 +93,7 @@ def _make_completed_subprocess(returncode=0, stdout="", stderr=""):
     return result
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_movie_no_archives(mock_run, tmp_path):
     """Non-archive movie: only rename step runs, no extract step."""
     rename_stdout = "[rename] From [/dl/Movie.mkv] to [/plex/Movie (2024)/Movie.mkv]\n"
@@ -103,7 +103,7 @@ def test_organize_movie_no_archives(mock_run, tmp_path):
     source = tmp_path / "Movie.mkv"
     source.write_text("data")
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = "/plex/movies"
         mock_config.PLEX_TV_DIR = "/plex/tv"
@@ -117,7 +117,7 @@ def test_organize_movie_no_archives(mock_run, tmp_path):
     assert "-extract" not in args
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_with_archives(mock_run, tmp_path):
     """Archive files: extract step runs first, then rename."""
     extract_result = _make_completed_subprocess()
@@ -129,7 +129,7 @@ def test_organize_with_archives(mock_run, tmp_path):
     archive = tmp_path / "movie.rar"
     archive.write_text("data")
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = "/plex/movies"
         mock_config.PLEX_TV_DIR = "/plex/tv"
@@ -142,7 +142,7 @@ def test_organize_with_archives(mock_run, tmp_path):
     assert "-rename" in rename_args
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_tv_uses_tv_dir(mock_run, tmp_path):
     """TV downloads use PLEX_TV_DIR."""
     rename_stdout = "[rename] From [/dl/show.mkv] to [/plex/tv/Show/Season 01/Show - S01E01.mkv]\n"
@@ -152,7 +152,7 @@ def test_organize_tv_uses_tv_dir(mock_run, tmp_path):
     source = tmp_path / "show.S01E01.mkv"
     source.write_text("data")
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = "/plex/movies"
         mock_config.PLEX_TV_DIR = "/plex/tv"
@@ -162,7 +162,7 @@ def test_organize_tv_uses_tv_dir(mock_run, tmp_path):
     assert "/plex/tv" in rename_args
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_raises_on_nonzero_exit(mock_run, tmp_path):
     """Non-zero FileBot exit raises RuntimeError with stderr."""
     mock_run.return_value = _make_completed_subprocess(returncode=1, stderr="Error: no match found")
@@ -171,7 +171,7 @@ def test_organize_raises_on_nonzero_exit(mock_run, tmp_path):
     source = tmp_path / "movie.mkv"
     source.write_text("data")
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = "/plex/movies"
         mock_config.PLEX_TV_DIR = "/plex/tv"
@@ -179,7 +179,7 @@ def test_organize_raises_on_nonzero_exit(mock_run, tmp_path):
             organize_download(dl, [source])
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_cleans_up_temp_dir_on_success(mock_run, tmp_path):
     """Temp directory is removed after successful organization."""
     rename_stdout = "[rename] From [/dl/movie.mkv] to [/plex/Movie/Movie.mkv]\n"
@@ -202,7 +202,7 @@ def test_organize_cleans_up_temp_dir_on_success(mock_run, tmp_path):
 
     mock_run.side_effect = capturing_run
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = "/plex/movies"
         mock_config.PLEX_TV_DIR = "/plex/tv"
@@ -213,7 +213,7 @@ def test_organize_cleans_up_temp_dir_on_success(mock_run, tmp_path):
         assert not Path(captured_temp[0]).exists()
 
 
-@patch("filebot_organizer.subprocess.run")
+@patch("megaqueue.filebot_organizer.subprocess.run")
 def test_organize_fallback_scan_when_no_stdout_paths(mock_run, tmp_path):
     """Falls back to directory scan when stdout has no parseable rename lines."""
     mock_run.return_value = _make_completed_subprocess(stdout="Skipping... already exists\n")
@@ -226,11 +226,11 @@ def test_organize_fallback_scan_when_no_stdout_paths(mock_run, tmp_path):
     new_file.parent.mkdir()
     new_file.write_text("data")
 
-    with patch("filebot_organizer.config") as mock_config:
+    with patch("megaqueue.filebot_organizer.config") as mock_config:
         mock_config.FILEBOT_BIN = "filebot"
         mock_config.PLEX_MOVIES_DIR = str(tmp_path / "plex")
         mock_config.PLEX_TV_DIR = str(tmp_path / "plex-tv")
-        with patch("filebot_organizer._fallback_scan", return_value=[str(new_file)]) as mock_scan:
+        with patch("megaqueue.filebot_organizer._fallback_scan", return_value=[str(new_file)]) as mock_scan:
             result = organize_download(dl, [source])
 
     mock_scan.assert_called_once()

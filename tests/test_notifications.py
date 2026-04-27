@@ -1,7 +1,7 @@
 import responses
 from unittest.mock import MagicMock
 
-from notifications import notify_completion, notify_failure
+from megaqueue.notifications import notify_completion, notify_failure
 
 
 @responses.activate
