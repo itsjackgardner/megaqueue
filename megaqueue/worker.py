@@ -55,19 +55,23 @@ def _match_megabasterd_files(mb_downloads, download_files):
 
     Uses three-tier matching:
     1. Direct URL match (for single file downloads)
-    2. sourceUrl match (forward-compat shim; not currently returned by megabasterd)
+    2. sourceUrl match (for folder-split entries — megabasterd returns the
+       original folder URL as sourceUrl on each per-file entry)
     3. Folder-ID match: extract ###n={folderId} from per-file URL, match against
-       DownloadFile records with mega.nz/folder/{folderId} URLs
+       DownloadFile records with mega.nz/folder/{folderId} URLs (backward compat)
 
     Returns dict: DownloadFile.id -> list[megabasterd entry].
     A single DownloadFile may match multiple megabasterd entries (folder splits).
     """
     # Build lookup: normalized URL -> DownloadFile
     file_by_norm = {}
+    # Build lookup: raw URL -> DownloadFile (for exact sourceUrl matching)
+    file_by_url = {}
     # Build secondary lookup: folder ID -> DownloadFile (for folder URLs only)
     file_by_folder_id = {}
     for df in download_files:
         file_by_norm[_normalize_mega_url(df.url)] = df
+        file_by_url[df.url] = df
         folder_id = _extract_folder_id(df.url)
         if folder_id and "mega.nz/folder/" in df.url:
             file_by_folder_id[folder_id] = df
@@ -79,10 +83,14 @@ def _match_megabasterd_files(mb_downloads, download_files):
         norm = _normalize_mega_url(mb_dl.get("url", ""))
         df = file_by_norm.get(norm)
 
-        # Tier 2: match by sourceUrl (folder-split entries; not currently returned)
+        # Tier 2: match by sourceUrl (folder-split entries)
         if df is None:
-            source_norm = _normalize_mega_url(mb_dl.get("sourceUrl", ""))
-            df = file_by_norm.get(source_norm)
+            source_url = mb_dl.get("sourceUrl", "")
+            if source_url:
+                # Try exact URL match first (folder URLs), then normalized
+                df = file_by_url.get(source_url)
+                if df is None:
+                    df = file_by_norm.get(_normalize_mega_url(source_url))
 
         # Tier 3: match by folder ID extracted from ###n={folderId} suffix
         if df is None:
@@ -109,6 +117,8 @@ def _maybe_expand_folder_files(download, initial_matches):
         if df.children:
             continue  # already expanded
         mb_entries = initial_matches.get(df.id, [])
+        # Filter out pending entries — can't expand from them (no per-file URLs yet)
+        mb_entries = [e for e in mb_entries if e.get("status") != "Pending"]
         if not mb_entries:
             continue
         if "mega.nz/folder/" not in df.url:
@@ -257,38 +267,12 @@ def _post_process(download, client):
                 pass
 
 
-_submitting_ids = set()  # download IDs currently being submitted in background threads
-
-
-def _do_submit(client, download_id, title, links):
-    """Background thread target: submit links to megabasterd and update DB."""
-    try:
-        log.info("Submitting '%s' to megabasterd (%d links)", title, len(links))
-        client.start(links)
-        session = db_session()
-        dl = session.get(Download, download_id)
-        if dl and dl.status == "queued":
-            dl.downloading_since = datetime.utcnow()
-            session.commit()
-            log.info("Submitted '%s' to megabasterd", title)
-    except Exception as e:
-        log.error("Failed to submit '%s' to megabasterd: %s", title, e)
-        session = db_session()
-        dl = session.get(Download, download_id)
-        if dl:
-            dl.status = "failed"
-            dl.error_message = f"Failed to submit to megabasterd: {e}"
-            session.commit()
-    finally:
-        db_session.remove()
-        _submitting_ids.discard(download_id)
-
-
 def _submit_pending_downloads(client):
     """Submit queued downloads that haven't been sent to megabasterd yet.
 
     Downloads with downloading_since=None haven't been submitted.
-    Each submission runs in a separate thread to avoid blocking the worker loop.
+    Since megabasterd's /start is async (returns immediately), this is safe
+    to call synchronously in the worker loop.
     """
     pending = db_session.query(Download).filter(
         Download.status == "queued",
@@ -296,15 +280,18 @@ def _submit_pending_downloads(client):
     ).all()
 
     for download in pending:
-        if download.id in _submitting_ids:
-            continue
-        _submitting_ids.add(download.id)
-        t = threading.Thread(
-            target=_do_submit,
-            args=(client, download.id, download.title, download.links),
-            daemon=True,
-        )
-        t.start()
+        try:
+            links = download.links
+            log.info("Submitting '%s' to megabasterd (%d links)", download.title, len(links))
+            client.start(links)
+            download.downloading_since = datetime.utcnow()
+            db_session.commit()
+            log.info("Submitted '%s' to megabasterd", download.title)
+        except Exception as e:
+            log.error("Failed to submit '%s' to megabasterd: %s", download.title, e)
+            download.status = "failed"
+            download.error_message = f"Failed to submit to megabasterd: {e}"
+            db_session.commit()
 
 
 def _sync_active_downloads(client, mb_downloads):
@@ -333,11 +320,13 @@ def _sync_active_downloads(client, mb_downloads):
         file_matches = _match_megabasterd_files(mb_downloads, download.leaf_files)
         matched_file_ids.update(file_matches.keys())
 
-        # Step 4: Update each matched leaf file
+        # Step 4: Update each matched leaf file (skip pending-only entries)
         for df in download.leaf_files:
             mb_entries = file_matches.get(df.id)
             if mb_entries is not None:
-                _update_file_from_megabasterd(df, mb_entries)
+                active_entries = [e for e in mb_entries if e.get("status") != "Pending"]
+                if active_entries:
+                    _update_file_from_megabasterd(df, active_entries)
 
         # Derive overall status from leaf files
         new_status = _derive_download_status(download)
@@ -378,18 +367,16 @@ def _integrity_sweep(matched_file_ids):
         if download.status == "cancelled":
             continue
 
+        # Skip downloads not yet submitted to megabasterd
+        if download.downloading_since is None:
+            continue
+
         # Check if any leaf files were unmatched
         unmatched_files = [
             f for f in download.leaf_files
             if f.id not in matched_file_ids and f.status not in ("finished", "failed")
         ]
         if not unmatched_files:
-            continue
-
-        # Stamp downloading_since if missing (defensive)
-        if download.downloading_since is None:
-            download.downloading_since = now
-            db_session.commit()
             continue
 
         age = (now - download.downloading_since).total_seconds()

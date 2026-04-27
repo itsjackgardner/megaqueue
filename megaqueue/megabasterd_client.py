@@ -47,7 +47,7 @@ class MegabasterdClient:
         body = {"urls": urls}
         if dest:
             body["dest"] = dest
-        return self._request("POST", "/start", json=body, timeout=300)
+        return self._request("POST", "/start", json=body)
 
     def stop(self, url, delete=True):
         """POST /stop — stop a download by its mega.nz URL.

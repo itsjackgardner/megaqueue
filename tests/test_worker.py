@@ -12,6 +12,7 @@ from megaqueue.worker import (
     _derive_download_status,
     _update_file_from_megabasterd,
     _resolve_source_paths,
+    _submit_pending_downloads,
     _sync_active_downloads,
     _integrity_sweep,
 )
@@ -532,3 +533,157 @@ def test_integrity_sweep_respects_grace_period(mock_notify, db_session):
 
     db_session.refresh(dl)
     assert dl.files[0].status == "downloading"  # not failed yet
+
+
+# --- Submit Pending Downloads ---
+
+def test_submit_pending_stamps_downloading_since(db_session):
+    """Worker submits queued downloads to megabasterd and stamps downloading_since."""
+    dl = Download(title="Test Movie", media_type="movie", status="queued")
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
+    db_session.add(dl)
+    db_session.commit()
+
+    assert dl.downloading_since is None
+
+    client = MagicMock()
+    _submit_pending_downloads(client)
+
+    db_session.refresh(dl)
+    client.start.assert_called_once()
+    assert dl.downloading_since is not None
+    assert dl.status == "queued"
+
+
+def test_submit_pending_failure_marks_failed(db_session):
+    """Submission failure marks the download as failed with error message."""
+    dl = Download(title="Test Movie", media_type="movie", status="queued")
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
+    db_session.add(dl)
+    db_session.commit()
+
+    client = MagicMock()
+    client.start.side_effect = ConnectionError("Connection refused")
+    _submit_pending_downloads(client)
+
+    db_session.refresh(dl)
+    assert dl.status == "failed"
+    assert "Connection refused" in dl.error_message
+
+
+def test_submit_pending_skips_already_submitted(db_session):
+    """Downloads with downloading_since set are not re-submitted."""
+    dl = Download(
+        title="Test", media_type="movie", status="queued",
+        downloading_since=datetime.utcnow(),
+    )
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
+    db_session.add(dl)
+    db_session.commit()
+
+    client = MagicMock()
+    _submit_pending_downloads(client)
+
+    client.start.assert_not_called()
+
+
+# --- Pending Entry Matching ---
+
+def test_pending_entry_matches_and_prevents_sweep(db_session):
+    """Pending megabasterd entries match DownloadFiles and prevent integrity sweep failure."""
+    dl = Download(
+        title="Test", media_type="movie", status="queued",
+        downloading_since=datetime.utcnow() - timedelta(seconds=60),
+    )
+    df = DownloadFile(url="https://mega.nz/file/abc#key")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [{
+        "url": "https://mega.nz/file/abc#key",
+        "status": "Pending",
+        "finished": False,
+        "bytesLoaded": 0,
+        "bytesTotal": 0,
+        "speed": 0,
+    }]
+    matched = _match_megabasterd_files(mb_downloads, dl.files)
+
+    # Pending entry should match
+    assert df.id in matched
+
+    # And prevent integrity sweep from failing the file
+    _integrity_sweep(matched_file_ids=set(matched.keys()))
+    db_session.refresh(dl)
+    assert df.status == "queued"  # not failed
+
+
+@patch("megaqueue.worker.notify_failure")
+@patch("megaqueue.worker.notify_completion")
+@patch("megaqueue.worker.filebot_organizer")
+def test_pending_entry_does_not_advance_status(mock_fb, mock_ok, mock_fail, db_session):
+    """Pending entries don't change DownloadFile status from queued."""
+    dl = Download(title="Test", media_type="movie", status="queued",
+                  downloading_since=datetime.utcnow())
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status="queued"))
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [{
+        "url": "https://mega.nz/file/abc#key",
+        "status": "Pending",
+        "finished": False,
+        "bytesLoaded": 0,
+        "bytesTotal": 0,
+        "speed": 0,
+    }]
+
+    client = MagicMock()
+    _sync_active_downloads(client, mb_downloads)
+
+    db_session.refresh(dl)
+    assert dl.files[0].status == "queued"
+    assert dl.status == "queued"
+
+
+# --- sourceUrl Matching ---
+
+def test_match_by_source_url_folder(db_session):
+    """Folder-split entries match via sourceUrl to a folder DownloadFile."""
+    folder_url = "https://mega.nz/folder/LAlWVZbQ#HUccRplmJSvCF-9bOuyFJg"
+    dl = Download(title="Show", media_type="tv")
+    df = DownloadFile(url=folder_url)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [
+        {"url": f"https://mega.nz/#N!id{i}!key{i}###n=LAlWVZbQ",
+         "sourceUrl": folder_url, "name": f"ep0{i}.mkv"}
+        for i in range(1, 4)
+    ]
+    matched = _match_megabasterd_files(mb_downloads, dl.files)
+
+    assert df.id in matched
+    assert len(matched[df.id]) == 3
+
+
+# --- Integrity Sweep Skips Unsubmitted ---
+
+@patch("megaqueue.worker.notify_failure")
+def test_integrity_sweep_skips_unsubmitted(mock_notify, db_session):
+    """Downloads with downloading_since=None are excluded from integrity sweep."""
+    dl = Download(
+        title="Test", media_type="movie", status="queued",
+        downloading_since=None,  # not yet submitted
+    )
+    dl.files.append(DownloadFile(url="u1", status="queued"))
+    db_session.add(dl)
+    db_session.commit()
+
+    _integrity_sweep(matched_file_ids=set())
+
+    db_session.refresh(dl)
+    assert dl.files[0].status == "queued"  # not failed
+    mock_notify.assert_not_called()
