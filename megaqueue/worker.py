@@ -257,10 +257,38 @@ def _post_process(download, client):
                 pass
 
 
+_submitting_ids = set()  # download IDs currently being submitted in background threads
+
+
+def _do_submit(client, download_id, title, links):
+    """Background thread target: submit links to megabasterd and update DB."""
+    try:
+        log.info("Submitting '%s' to megabasterd (%d links)", title, len(links))
+        client.start(links)
+        session = db_session()
+        dl = session.get(Download, download_id)
+        if dl and dl.status == "queued":
+            dl.downloading_since = datetime.utcnow()
+            session.commit()
+            log.info("Submitted '%s' to megabasterd", title)
+    except Exception as e:
+        log.error("Failed to submit '%s' to megabasterd: %s", title, e)
+        session = db_session()
+        dl = session.get(Download, download_id)
+        if dl:
+            dl.status = "failed"
+            dl.error_message = f"Failed to submit to megabasterd: {e}"
+            session.commit()
+    finally:
+        db_session.remove()
+        _submitting_ids.discard(download_id)
+
+
 def _submit_pending_downloads(client):
     """Submit queued downloads that haven't been sent to megabasterd yet.
 
     Downloads with downloading_since=None haven't been submitted.
+    Each submission runs in a separate thread to avoid blocking the worker loop.
     """
     pending = db_session.query(Download).filter(
         Download.status == "queued",
@@ -268,16 +296,15 @@ def _submit_pending_downloads(client):
     ).all()
 
     for download in pending:
-        try:
-            client.start(download.links)
-            download.downloading_since = datetime.utcnow()
-            db_session.commit()
-            log.info("Submitted '%s' to megabasterd", download.title)
-        except Exception as e:
-            log.error("Failed to submit '%s' to megabasterd: %s", download.title, e)
-            download.status = "failed"
-            download.error_message = f"Failed to submit to megabasterd: {e}"
-            db_session.commit()
+        if download.id in _submitting_ids:
+            continue
+        _submitting_ids.add(download.id)
+        t = threading.Thread(
+            target=_do_submit,
+            args=(client, download.id, download.title, download.links),
+            daemon=True,
+        )
+        t.start()
 
 
 def _sync_active_downloads(client, mb_downloads):

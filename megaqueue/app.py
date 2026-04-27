@@ -2,6 +2,8 @@ import logging
 import subprocess
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify
+
+log = logging.getLogger(__name__)
 from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
@@ -77,6 +79,7 @@ def add_download():
 
     db_session.add(dl)
     db_session.commit()
+    log.info("Queued '%s' (%d links) — worker will submit to megabasterd", title, len(links))
 
     return redirect(url_for("index"))
 
