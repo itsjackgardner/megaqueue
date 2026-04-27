@@ -257,6 +257,29 @@ def _post_process(download, client):
                 pass
 
 
+def _submit_pending_downloads(client):
+    """Submit queued downloads that haven't been sent to megabasterd yet.
+
+    Downloads with downloading_since=None haven't been submitted.
+    """
+    pending = db_session.query(Download).filter(
+        Download.status == "queued",
+        Download.downloading_since.is_(None),
+    ).all()
+
+    for download in pending:
+        try:
+            client.start(download.links)
+            download.downloading_since = datetime.utcnow()
+            db_session.commit()
+            log.info("Submitted '%s' to megabasterd", download.title)
+        except Exception as e:
+            log.error("Failed to submit '%s' to megabasterd: %s", download.title, e)
+            download.status = "failed"
+            download.error_message = f"Failed to submit to megabasterd: {e}"
+            db_session.commit()
+
+
 def _sync_active_downloads(client, mb_downloads):
     """Match megabasterd downloads to DB records and update state."""
     matched_file_ids = set()
@@ -364,7 +387,9 @@ def _integrity_sweep(matched_file_ids):
 
 
 def _poll_once(client):
-    """Single poll tick: fetch megabasterd status, sync DB, sweep for stuck records."""
+    """Single poll tick: submit pending, fetch megabasterd status, sync DB, sweep."""
+    _submit_pending_downloads(client)
+
     try:
         status = client.status()
     except Exception as e:

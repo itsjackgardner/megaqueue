@@ -5,8 +5,6 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
-from datetime import datetime
-
 from megaqueue import config
 from megaqueue.models import db_session, init_db, Download, DownloadFile
 from megaqueue.megabasterd_client import MegabasterdClient
@@ -73,17 +71,9 @@ def add_download():
     if not links:
         return redirect(url_for("index"))
 
-    dl = Download(title=title, year=year, media_type=media_type)
+    dl = Download(title=title, year=year, media_type=media_type, status="queued")
     for link in links:
         dl.files.append(DownloadFile(url=link))
-
-    try:
-        mb_client.start(links)
-        dl.status = "queued"
-        dl.downloading_since = datetime.utcnow()
-    except Exception as e:
-        dl.status = "failed"
-        dl.error_message = f"Failed to submit to megabasterd: {e}"
 
     db_session.add(dl)
     db_session.commit()
@@ -103,19 +93,15 @@ def download_detail(download_id):
 def retry_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl and dl.status in ("failed", "cancelled"):
-        try:
-            mb_client.start(dl.links)
-            dl.status = "queued"
-            dl.downloading_since = datetime.utcnow()
-            dl.error_message = None
-            for f in dl.files:
-                f.status = "queued"
-                f.progress_bytes = 0
-                f.total_bytes = 0
-                f.speed = 0
-                f.error_message = None
-        except Exception as e:
-            dl.error_message = f"Failed to submit to megabasterd: {e}"
+        dl.status = "queued"
+        dl.downloading_since = None
+        dl.error_message = None
+        for f in dl.files:
+            f.status = "queued"
+            f.progress_bytes = 0
+            f.total_bytes = 0
+            f.speed = 0
+            f.error_message = None
         db_session.commit()
     return redirect(url_for("index"))
 

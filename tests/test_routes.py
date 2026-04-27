@@ -40,8 +40,9 @@ def test_create_download(mock_mb, mock_worker, client, db_session):
     assert dl is not None
     assert dl.year == 2024
     assert dl.media_type == "movie"
+    assert dl.status == "queued"
+    assert dl.downloading_since is None  # not yet submitted to megabasterd
     assert len(dl.files) == 2
-    mock_mb.start.assert_called_once()
 
 
 @patch("megaqueue.app.start_worker")
