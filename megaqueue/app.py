@@ -169,7 +169,7 @@ def _validate_filebot():
     """Check that the FileBot binary is accessible. Logs a warning if not."""
     try:
         subprocess.run(
-            [config.FILEBOT_BIN, "--version"],
+            [config.FILEBOT_BIN, "-version"],
             check=True,
             capture_output=True,
             timeout=10,

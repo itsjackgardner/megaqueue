@@ -59,7 +59,7 @@ def organize_download(download, source_paths):
         # Step 1: Extract archives if present
         if archives:
             result = subprocess.run(
-                [config.FILEBOT_BIN, "-extract"] + [str(a) for a in archives] + ["--output", temp_dir],
+                [config.FILEBOT_BIN, "-extract"] + [str(a) for a in archives] + ["-output", temp_dir],
                 capture_output=True,
                 text=True,
             )
@@ -86,10 +86,10 @@ def organize_download(download, source_paths):
             [config.FILEBOT_BIN, "-rename"]
             + rename_inputs
             + [
-                "--output", plex_dir,
-                "--format", "{plex}",
-                "--action", "move",
-                "--q", download.title,
+                "-output", plex_dir,
+                "-format", "{plex}",
+                "-action", "move",
+                "-q", download.title,
                 "-non-strict",
             ]
         )
