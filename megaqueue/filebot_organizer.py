@@ -89,7 +89,7 @@ def organize_download(download, source_paths):
                 "--output", plex_dir,
                 "--format", "{plex}",
                 "--action", "move",
-                "-q", download.title,
+                "--q", download.title,
                 "-non-strict",
             ]
         )
