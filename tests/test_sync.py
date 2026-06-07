@@ -222,7 +222,7 @@ def test_update_multi_entry_aggregation(db_session):
 
 @patch("megaqueue.lifecycle.notify_failure")
 @patch("megaqueue.lifecycle.notify_completion")
-@patch("megaqueue.lifecycle.filebot_organizer")
+@patch("megaqueue.lifecycle.organiser")
 def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
     dl = Download(title="Test", media_type="movie", status=DownloadStatus.QUEUED)
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
@@ -244,7 +244,7 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
 
 @patch("megaqueue.lifecycle.notify_failure")
 @patch("megaqueue.lifecycle.notify_completion")
-@patch("megaqueue.lifecycle.filebot_organizer")
+@patch("megaqueue.lifecycle.organiser")
 def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
     """A finished download with high metadata confidence runs the organiser."""
     mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
@@ -275,7 +275,7 @@ def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail
 @patch("megaqueue.sync.notify_needs_review")
 @patch("megaqueue.lifecycle.notify_failure")
 @patch("megaqueue.lifecycle.notify_completion")
-@patch("megaqueue.lifecycle.filebot_organizer")
+@patch("megaqueue.lifecycle.organiser")
 def test_sync_routes_low_confidence_to_needs_review(mock_fb, mock_ok, mock_fail, mock_review, db_session):
     """A finished download with low confidence enters NEEDS_REVIEW and notifies; organiser does not run."""
     dl = Download(media_type=None, status=DownloadStatus.DOWNLOADING,
@@ -555,7 +555,7 @@ def test_pending_entry_matches_and_prevents_sweep(db_session):
 
 @patch("megaqueue.lifecycle.notify_failure")
 @patch("megaqueue.lifecycle.notify_completion")
-@patch("megaqueue.lifecycle.filebot_organizer")
+@patch("megaqueue.lifecycle.organiser")
 def test_pending_entry_does_not_advance_status(mock_fb, mock_ok, mock_fail, db_session):
     dl = Download(title="Test", media_type="movie", status=DownloadStatus.QUEUED,
                   downloading_since=datetime.utcnow())

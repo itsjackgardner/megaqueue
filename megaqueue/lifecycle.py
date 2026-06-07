@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from megaqueue import config, filebot_organizer
+from megaqueue import config, organiser
 from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence
 from megaqueue.models import db_session
 from megaqueue.notifications import notify_completion, notify_failure, notify_needs_review
@@ -58,9 +58,10 @@ def post_process(download, client):
     """Organize files, send notification, and clear from megabasterd."""
     try:
         source_paths = resolve_source_paths(download)
-        final_paths = filebot_organizer.organize_download(download, source_paths)
+        final_paths = organiser.organize_download(download, source_paths)
         for df, fp in zip(download.leaf_files, final_paths):
-            df.file_path = fp
+            if fp:
+                df.file_path = fp
         download.status = DownloadStatus.COMPLETE
         db_session.commit()
         notify_completion(download)
