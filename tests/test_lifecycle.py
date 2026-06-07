@@ -2,19 +2,32 @@ from unittest.mock import patch
 
 import pytest
 
-from megaqueue.enums import DownloadStatus, FileStatus
+from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence
 from megaqueue.lifecycle import derive_download_status, resolve_source_paths
 from megaqueue.models import Download, DownloadFile
 
 
-def test_derive_all_finished(db_session):
-    dl = Download(title="Test", media_type="movie", status=DownloadStatus.DOWNLOADING)
+def test_derive_all_finished_high_confidence(db_session):
+    dl = Download(title="Test", media_type="movie", status=DownloadStatus.DOWNLOADING,
+                  metadata_confidence=MetadataConfidence.HIGH)
     dl.files.append(DownloadFile(url="u1", status=FileStatus.FINISHED))
     dl.files.append(DownloadFile(url="u2", status=FileStatus.FINISHED))
     db_session.add(dl)
     db_session.commit()
 
     assert derive_download_status(dl) == DownloadStatus.PROCESSING
+
+
+def test_derive_all_finished_low_confidence(db_session):
+    """All files finished but metadata confidence is low -> NEEDS_REVIEW, not PROCESSING."""
+    dl = Download(title="Test", media_type="movie", status=DownloadStatus.DOWNLOADING,
+                  metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="u1", status=FileStatus.FINISHED))
+    dl.files.append(DownloadFile(url="u2", status=FileStatus.FINISHED))
+    db_session.add(dl)
+    db_session.commit()
+
+    assert derive_download_status(dl) == DownloadStatus.NEEDS_REVIEW
 
 
 def test_derive_all_failed(db_session):

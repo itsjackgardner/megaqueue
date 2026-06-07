@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from megaqueue.enums import DownloadStatus, FileStatus
+from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence
 from megaqueue.models import Download, DownloadFile
 from megaqueue.sync import (
     match_megabasterd_files,
@@ -246,15 +246,19 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
 @patch("megaqueue.lifecycle.notify_completion")
 @patch("megaqueue.lifecycle.filebot_organizer")
 def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
+    """A finished download with high metadata confidence runs the organiser."""
     mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
 
-    dl = Download(title="Test", media_type="movie", status=DownloadStatus.DOWNLOADING)
+    # Pre-set high confidence so derive_download_status returns PROCESSING.
+    # In real flow, metadata.refresh would compute this from the filename.
+    dl = Download(title="Test", media_type="movie", status=DownloadStatus.DOWNLOADING,
+                  metadata_confidence=MetadataConfidence.HIGH)
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status=FileStatus.QUEUED))
     db_session.add(dl)
     db_session.commit()
 
     mb_downloads = [
-        {"url": "https://mega.nz/file/abc#key", "name": "movie.mkv",
+        {"url": "https://mega.nz/file/abc#key", "name": "Inception.2010.1080p.BluRay.x264.mkv",
          "bytesLoaded": 1000, "bytesTotal": 1000, "speed": 0,
          "finished": True, "status": "OK"}
     ]
@@ -266,6 +270,53 @@ def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail
     assert dl.status == DownloadStatus.COMPLETE
     mock_fb.organize_download.assert_called_once()
     mock_notify_ok.assert_called_once()
+
+
+@patch("megaqueue.sync.notify_needs_review")
+@patch("megaqueue.lifecycle.notify_failure")
+@patch("megaqueue.lifecycle.notify_completion")
+@patch("megaqueue.lifecycle.filebot_organizer")
+def test_sync_routes_low_confidence_to_needs_review(mock_fb, mock_ok, mock_fail, mock_review, db_session):
+    """A finished download with low confidence enters NEEDS_REVIEW and notifies; organiser does not run."""
+    dl = Download(media_type=None, status=DownloadStatus.DOWNLOADING,
+                  metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status=FileStatus.QUEUED))
+    db_session.add(dl)
+    db_session.commit()
+
+    # An ambiguous filename — guessit will give a weak result.
+    mb_downloads = [
+        {"url": "https://mega.nz/file/abc#key", "name": "Trailer.mkv",
+         "bytesLoaded": 1000, "bytesTotal": 1000, "speed": 0,
+         "finished": True, "status": "OK"}
+    ]
+
+    client = MagicMock()
+    sync_active(client, mb_downloads)
+
+    db_session.refresh(dl)
+    assert dl.status == DownloadStatus.NEEDS_REVIEW
+    mock_fb.organize_download.assert_not_called()
+    mock_review.assert_called_once()
+
+
+def test_sync_skips_downloads_already_in_needs_review(db_session):
+    """sync_active does not re-process NEEDS_REVIEW downloads on subsequent ticks."""
+    dl = Download(title="Movie", media_type="movie", status=DownloadStatus.NEEDS_REVIEW,
+                  metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status=FileStatus.FINISHED,
+                                 name="Movie.mkv"))
+    db_session.add(dl)
+    db_session.commit()
+
+    # Status query filters to QUEUED/DOWNLOADING, so this Download is excluded.
+    # Even if it slipped through, the NEEDS_REVIEW check inside the loop
+    # short-circuits before any work.
+    client = MagicMock()
+    result = sync_active(client, [])
+    assert result == set()
+    db_session.refresh(dl)
+    assert dl.status == DownloadStatus.NEEDS_REVIEW
 
 
 # --- Folder Expansion ---

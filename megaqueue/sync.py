@@ -3,11 +3,11 @@
 import logging
 from datetime import datetime
 
-from megaqueue import config, lifecycle
+from megaqueue import config, lifecycle, metadata
 from megaqueue.enums import DownloadStatus, FileStatus
 from megaqueue.mega_urls import normalize, extract_folder_id, is_folder_url
 from megaqueue.models import db_session, Download, DownloadFile
-from megaqueue.notifications import notify_failure
+from megaqueue.notifications import notify_failure, notify_needs_review
 
 log = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ def sync_active(client, mb_downloads):
 
     for download in active:
         db_session.refresh(download)
-        if download.status == DownloadStatus.CANCELLED:
+        if download.status in (DownloadStatus.CANCELLED, DownloadStatus.NEEDS_REVIEW):
             continue
 
         initial_matches = match_megabasterd_files(mb_downloads, download.top_level_files)
@@ -202,12 +202,19 @@ def sync_active(client, mb_downloads):
         file_matches = match_megabasterd_files(mb_downloads, download.leaf_files)
         matched_file_ids.update(file_matches.keys())
 
+        name_changed = False
         for df in download.leaf_files:
             mb_entries = file_matches.get(df.id)
             if mb_entries is not None:
                 active_entries = [e for e in mb_entries if e.get("status") != "Pending"]
                 if active_entries:
+                    prev_name = df.name
                     update_file_from_megabasterd(df, active_entries)
+                    if df.name != prev_name:
+                        name_changed = True
+
+        if name_changed:
+            metadata.refresh(download)
 
         new_status = lifecycle.derive_download_status(download)
 
@@ -219,6 +226,13 @@ def sync_active(client, mb_downloads):
             download.status = DownloadStatus.PROCESSING
             db_session.commit()
             lifecycle.post_process(download, client)
+            continue
+
+        if new_status == DownloadStatus.NEEDS_REVIEW and download.status != DownloadStatus.NEEDS_REVIEW:
+            log.info("All files finished for '%s' but metadata confidence is low — awaiting review", download.title)
+            download.status = DownloadStatus.NEEDS_REVIEW
+            db_session.commit()
+            notify_needs_review(download)
             continue
 
         if new_status == DownloadStatus.FAILED and download.status != DownloadStatus.FAILED:

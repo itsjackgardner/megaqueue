@@ -38,3 +38,26 @@ def notify_failure(download):
 
     reason = download.error_message or "Unknown error"
     _send("Download Failed", f"{title_str} — {reason}", priority="high")
+
+
+def notify_needs_review(download):
+    """Send notification when a download finishes but metadata needs user review."""
+    title_str = download.title or "(unresolved)"
+    if download.year:
+        title_str = f"{title_str} ({download.year})"
+
+    reasons = _needs_review_reasons(download)
+    body = f"{title_str} — {', '.join(reasons)}" if reasons else title_str
+    _send("Review needed", body, priority="default")
+
+
+def _needs_review_reasons(download):
+    """Compose human-readable reasons for why this download needs review."""
+    reasons = []
+    if download.title is None:
+        reasons.append("no title detected")
+    if download.media_type is None:
+        reasons.append("mixed or unknown file types")
+    elif download.media_type == "movie" and download.year is None:
+        reasons.append("no year detected")
+    return reasons
