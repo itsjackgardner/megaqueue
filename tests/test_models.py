@@ -1,3 +1,4 @@
+from megaqueue.enums import DownloadStatus, MetadataConfidence, MetadataSource
 from megaqueue.models import Download, DownloadFile
 
 
@@ -211,3 +212,56 @@ def test_to_dict_files_returns_leaf_files(db_session):
     d = dl.to_dict()
     assert len(d["files"]) == 1
     assert d["files"][0]["name"] == "ep01.mkv"
+
+
+# --- New metadata columns ---
+
+def test_download_supports_nullable_title_and_media_type(db_session):
+    """Title and media_type are nullable (populated later by guessit)."""
+    dl = Download()
+    db_session.add(dl)
+    db_session.commit()
+
+    assert dl.id is not None
+    assert dl.title is None
+    assert dl.media_type is None
+    assert dl.status == DownloadStatus.QUEUED
+
+
+def test_download_metadata_confidence_defaults_to_low(db_session):
+    dl = Download()
+    db_session.add(dl)
+    db_session.commit()
+    assert dl.metadata_confidence == MetadataConfidence.LOW
+
+
+def test_download_accepts_needs_review_status(db_session):
+    dl = Download(status=DownloadStatus.NEEDS_REVIEW)
+    db_session.add(dl)
+    db_session.commit()
+    assert dl.status == DownloadStatus.NEEDS_REVIEW
+
+
+def test_download_metadata_source_persists(db_session):
+    dl = Download(metadata_source=MetadataSource.GUESSIT)
+    db_session.add(dl)
+    db_session.commit()
+    assert dl.metadata_source == MetadataSource.GUESSIT
+
+
+def test_download_file_is_extra_defaults_to_false(db_session):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="u1")
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+    assert df.is_extra is False
+
+
+def test_download_file_to_dict_includes_is_extra(db_session):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="u1", is_extra=True)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+    assert df.to_dict()["is_extra"] is True

@@ -36,47 +36,50 @@ def _add_is_extra_column(conn):
     )
 
 
+_NEW_DOWNLOADS_DDL = """
+    CREATE TABLE downloads_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title VARCHAR,
+        year INTEGER,
+        media_type VARCHAR CHECK (media_type IN ('movie', 'tv')),
+        status VARCHAR NOT NULL CHECK (status IN ('queued', 'downloading', 'needs_review', 'processing', 'complete', 'failed', 'cancelled')),
+        downloading_since DATETIME,
+        error_message TEXT,
+        metadata_confidence VARCHAR NOT NULL DEFAULT 'high' CHECK (metadata_confidence IN ('high', 'low')),
+        metadata_source VARCHAR CHECK (metadata_source IN ('guessit', 'user')),
+        created_at DATETIME,
+        updated_at DATETIME
+    )
+"""
+
+
 def _widen_status_enum(conn):
     """Rebuild the downloads table to widen the status CHECK to include needs_review.
 
-    SQLite cannot ALTER a CHECK constraint in place, so we rebuild the table
-    using the standard create-new / copy / swap pattern. Done as a single
-    transaction.
+    SQLite cannot ALTER a CHECK constraint in place, so we rebuild via the
+    standard create-new / copy / swap pattern. Names columns explicitly so
+    column-order differences between legacy and new schema don't shuffle data.
 
-    Idempotent: if the existing CHECK already accepts 'needs_review', writing
-    that value to a probe row would succeed — but cleaner to just attempt the
-    rebuild and let the migration runner catch a re-run that finds the table
-    already at the new shape (the new table name collision raises).
+    Idempotent: if the CHECK already accepts needs_review, the new table is
+    rebuilt anyway; it's the same shape and the copy is loss-free.
     """
-    # Probe: insert (then delete) a row with status='needs_review'. If it
-    # succeeds, the CHECK already allows it and we're done. If it fails, do
-    # the rebuild.
-    try:
-        conn.exec_driver_sql(
-            "INSERT INTO downloads (status, metadata_confidence) VALUES ('needs_review', 'high')"
-        )
-        conn.exec_driver_sql("DELETE FROM downloads WHERE status = 'needs_review'")
-        return
-    except Exception:
-        pass
-
     conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    conn.exec_driver_sql("DROP TABLE IF EXISTS downloads_new")
+    conn.exec_driver_sql(_NEW_DOWNLOADS_DDL)
     conn.exec_driver_sql("""
-        CREATE TABLE downloads_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title VARCHAR,
-            year INTEGER,
-            media_type VARCHAR CHECK (media_type IN ('movie', 'tv')),
-            status VARCHAR NOT NULL CHECK (status IN ('queued', 'downloading', 'needs_review', 'processing', 'complete', 'failed', 'cancelled')),
-            downloading_since DATETIME,
-            error_message TEXT,
-            metadata_confidence VARCHAR NOT NULL DEFAULT 'high' CHECK (metadata_confidence IN ('high', 'low')),
-            metadata_source VARCHAR CHECK (metadata_source IN ('guessit', 'user')),
-            created_at DATETIME,
-            updated_at DATETIME
+        INSERT INTO downloads_new (
+            id, title, year, media_type, status, downloading_since,
+            error_message, metadata_confidence, metadata_source,
+            created_at, updated_at
         )
+        SELECT
+            id, title, year, media_type, status, downloading_since,
+            error_message,
+            COALESCE(metadata_confidence, 'high') AS metadata_confidence,
+            metadata_source,
+            created_at, updated_at
+        FROM downloads
     """)
-    conn.exec_driver_sql("INSERT INTO downloads_new SELECT * FROM downloads")
     conn.exec_driver_sql("DROP TABLE downloads")
     conn.exec_driver_sql("ALTER TABLE downloads_new RENAME TO downloads")
     conn.exec_driver_sql("PRAGMA foreign_keys=ON")
