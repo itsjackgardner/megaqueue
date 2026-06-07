@@ -4,8 +4,10 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker, relationship
 
+from sqlalchemy import Boolean
+
 from megaqueue import config, migrations
-from megaqueue.enums import DownloadStatus, FileStatus, MediaType
+from megaqueue.enums import DownloadStatus, FileStatus, MediaType, MetadataConfidence, MetadataSource
 
 Base = declarative_base()
 
@@ -32,6 +34,7 @@ class DownloadFile(Base):
     speed = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     file_path = Column(String, nullable=True)
+    is_extra = Column(Boolean, nullable=False, default=False)
 
     children = relationship(
         "DownloadFile",
@@ -51,6 +54,7 @@ class DownloadFile(Base):
             "speed": self.speed,
             "error_message": self.error_message,
             "file_path": self.file_path,
+            "is_extra": self.is_extra,
         }
 
 
@@ -58,12 +62,17 @@ class Download(Base):
     __tablename__ = "downloads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String, nullable=False)
+    title = Column(String, nullable=True)
     year = Column(Integer, nullable=True)
-    media_type = _enum_column(MediaType, name="media_type", nullable=False)
+    media_type = _enum_column(MediaType, name="media_type", nullable=True)
     status = _enum_column(DownloadStatus, name="status", nullable=False, default=DownloadStatus.QUEUED)
     downloading_since = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
+    metadata_confidence = _enum_column(
+        MetadataConfidence, name="metadata_confidence",
+        nullable=False, default=MetadataConfidence.LOW,
+    )
+    metadata_source = _enum_column(MetadataSource, name="metadata_source", nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -119,6 +128,8 @@ class Download(Base):
             "speed": self.speed,
             "downloading_since": self.downloading_since.isoformat() if self.downloading_since else None,
             "error_message": self.error_message,
+            "metadata_confidence": self.metadata_confidence,
+            "metadata_source": self.metadata_source,
             "file_paths": self.file_paths,
             "files": [f.to_dict() for f in self.leaf_files],
             "created_at": self.created_at.isoformat() if self.created_at else None,

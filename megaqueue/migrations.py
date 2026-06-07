@@ -18,8 +18,76 @@ def _add_parent_id_column(conn):
     )
 
 
+def _add_metadata_confidence_column(conn):
+    conn.exec_driver_sql(
+        "ALTER TABLE downloads ADD COLUMN metadata_confidence TEXT NOT NULL DEFAULT 'high'"
+    )
+
+
+def _add_metadata_source_column(conn):
+    conn.exec_driver_sql(
+        "ALTER TABLE downloads ADD COLUMN metadata_source TEXT"
+    )
+
+
+def _add_is_extra_column(conn):
+    conn.exec_driver_sql(
+        "ALTER TABLE download_files ADD COLUMN is_extra BOOLEAN NOT NULL DEFAULT 0"
+    )
+
+
+def _widen_status_enum(conn):
+    """Rebuild the downloads table to widen the status CHECK to include needs_review.
+
+    SQLite cannot ALTER a CHECK constraint in place, so we rebuild the table
+    using the standard create-new / copy / swap pattern. Done as a single
+    transaction.
+
+    Idempotent: if the existing CHECK already accepts 'needs_review', writing
+    that value to a probe row would succeed — but cleaner to just attempt the
+    rebuild and let the migration runner catch a re-run that finds the table
+    already at the new shape (the new table name collision raises).
+    """
+    # Probe: insert (then delete) a row with status='needs_review'. If it
+    # succeeds, the CHECK already allows it and we're done. If it fails, do
+    # the rebuild.
+    try:
+        conn.exec_driver_sql(
+            "INSERT INTO downloads (status, metadata_confidence) VALUES ('needs_review', 'high')"
+        )
+        conn.exec_driver_sql("DELETE FROM downloads WHERE status = 'needs_review'")
+        return
+    except Exception:
+        pass
+
+    conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    conn.exec_driver_sql("""
+        CREATE TABLE downloads_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title VARCHAR,
+            year INTEGER,
+            media_type VARCHAR CHECK (media_type IN ('movie', 'tv')),
+            status VARCHAR NOT NULL CHECK (status IN ('queued', 'downloading', 'needs_review', 'processing', 'complete', 'failed', 'cancelled')),
+            downloading_since DATETIME,
+            error_message TEXT,
+            metadata_confidence VARCHAR NOT NULL DEFAULT 'high' CHECK (metadata_confidence IN ('high', 'low')),
+            metadata_source VARCHAR CHECK (metadata_source IN ('guessit', 'user')),
+            created_at DATETIME,
+            updated_at DATETIME
+        )
+    """)
+    conn.exec_driver_sql("INSERT INTO downloads_new SELECT * FROM downloads")
+    conn.exec_driver_sql("DROP TABLE downloads")
+    conn.exec_driver_sql("ALTER TABLE downloads_new RENAME TO downloads")
+    conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+
 MIGRATIONS = [
     ("add_parent_id_column", _add_parent_id_column),
+    ("add_metadata_confidence_column", _add_metadata_confidence_column),
+    ("add_metadata_source_column", _add_metadata_source_column),
+    ("add_is_extra_column", _add_is_extra_column),
+    ("widen_status_enum", _widen_status_enum),
 ]
 
 
