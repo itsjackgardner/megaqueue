@@ -53,6 +53,7 @@ def organize_download(download, source_paths):
     non_archives = [p for p in source_paths if not _is_archive(p)]
 
     plex_dir = config.PLEX_MOVIES_DIR if download.media_type == "movie" else config.PLEX_TV_DIR
+    db = "TheMovieDB" if download.media_type == "movie" else "TheTVDB"
 
     temp_dir = tempfile.mkdtemp(prefix="megaqueue_")
     try:
@@ -90,6 +91,7 @@ def organize_download(download, source_paths):
                 "--format", "{plex}",
                 "--action", "move",
                 "--q", download.title,
+                "--db", db,
                 "-non-strict",
             ]
         )

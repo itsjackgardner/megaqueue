@@ -115,6 +115,9 @@ def test_organize_movie_no_archives(mock_run, tmp_path):
     args = mock_run.call_args[0][0]
     assert "-rename" in args
     assert "-extract" not in args
+    # Movie downloads pass --db TheMovieDB
+    db_idx = args.index("--db")
+    assert args[db_idx + 1] == "TheMovieDB"
 
 
 @patch("megaqueue.filebot_organizer.subprocess.run")
@@ -160,6 +163,9 @@ def test_organize_tv_uses_tv_dir(mock_run, tmp_path):
 
     rename_args = mock_run.call_args[0][0]
     assert "/plex/tv" in rename_args
+    # TV downloads pass --db TheTVDB
+    db_idx = rename_args.index("--db")
+    assert rename_args[db_idx + 1] == "TheTVDB"
 
 
 @patch("megaqueue.filebot_organizer.subprocess.run")

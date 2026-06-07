@@ -35,11 +35,12 @@ def _normalize_mega_url(url):
 def _extract_folder_id(url):
     """Extract the mega.nz folder ID from a URL.
 
-    Handles two patterns:
-    - Folder URL: https://mega.nz/folder/{folderId}#key  -> folderId
-    - Per-file URL with suffix: ...###n={folderId}        -> folderId
+    Handles three patterns:
+    - New folder URL: https://mega.nz/folder/{folderId}#key  -> folderId
+    - Old folder URL: https://mega.nz/#F!{folderId}!{key}    -> folderId
+    - Per-file URL with suffix: ...###n={folderId}            -> folderId
 
-    Returns None if neither pattern matches.
+    Returns None if no pattern matches.
     """
     m = re.search(r"###n=([^#&]+)", url)
     if m:
@@ -47,7 +48,15 @@ def _extract_folder_id(url):
     m = re.match(r"https?://mega\.nz/folder/([^#?/]+)", url)
     if m:
         return m.group(1)
+    m = re.match(r"https?://mega\.nz/#F!([^!]+)!", url)
+    if m:
+        return m.group(1)
     return None
+
+
+def _is_folder_url(url):
+    """Return True if the URL is a mega.nz folder URL (new or old format)."""
+    return "mega.nz/folder/" in url or bool(re.match(r"https?://mega\.nz/#F!", url))
 
 
 def _match_megabasterd_files(mb_downloads, download_files):
@@ -73,7 +82,7 @@ def _match_megabasterd_files(mb_downloads, download_files):
         file_by_norm[_normalize_mega_url(df.url)] = df
         file_by_url[df.url] = df
         folder_id = _extract_folder_id(df.url)
-        if folder_id and "mega.nz/folder/" in df.url:
+        if folder_id and _is_folder_url(df.url):
             file_by_folder_id[folder_id] = df
 
     matched = {}  # df.id -> list[mb_entry]
@@ -121,7 +130,7 @@ def _maybe_expand_folder_files(download, initial_matches):
         mb_entries = [e for e in mb_entries if e.get("status") != "Pending"]
         if not mb_entries:
             continue
-        if "mega.nz/folder/" not in df.url:
+        if not _is_folder_url(df.url):
             continue  # only expand folder URLs
 
         for mb_dl in mb_entries:

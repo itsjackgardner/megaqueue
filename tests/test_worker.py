@@ -7,6 +7,7 @@ from megaqueue.models import Download, DownloadFile
 from megaqueue.worker import (
     _normalize_mega_url,
     _extract_folder_id,
+    _is_folder_url,
     _match_megabasterd_files,
     _maybe_expand_folder_files,
     _derive_download_status,
@@ -68,6 +69,29 @@ def test_extract_folder_id_plain_file_url_returns_none():
 
 def test_extract_folder_id_empty_string_returns_none():
     assert _extract_folder_id("") is None
+
+
+def test_extract_folder_id_from_old_format_folder_url():
+    url = "https://mega.nz/#F!abc!keypart"
+    assert _extract_folder_id(url) == "abc"
+
+
+# --- Folder URL Detection ---
+
+def test_is_folder_url_new_format():
+    assert _is_folder_url("https://mega.nz/folder/abc#xyz") is True
+
+
+def test_is_folder_url_old_format():
+    assert _is_folder_url("https://mega.nz/#F!abc!xyz") is True
+
+
+def test_is_folder_url_new_file_format():
+    assert _is_folder_url("https://mega.nz/file/abc#xyz") is False
+
+
+def test_is_folder_url_old_file_format():
+    assert _is_folder_url("https://mega.nz/#!abc!xyz") is False
 
 
 # --- File Matching ---
@@ -365,6 +389,32 @@ def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail
 def test_expand_folder_files_creates_children(db_session):
     """First tick with folder split creates child DownloadFile records."""
     folder_url = "https://mega.nz/folder/abc123#key"
+    dl = Download(title="Show", media_type="tv")
+    df = DownloadFile(url=folder_url)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_entries = [
+        {"url": f"https://mega.nz/#N!id{i}!key{i}###n=abc123", "name": f"ep0{i}.mkv"}
+        for i in range(1, 4)
+    ]
+    initial_matches = {df.id: mb_entries}
+
+    _maybe_expand_folder_files(dl, initial_matches)
+    db_session.flush()
+    db_session.refresh(dl)
+
+    assert len(df.children) == 3
+    child_names = {c.name for c in df.children}
+    assert "ep01.mkv" in child_names
+    assert "ep02.mkv" in child_names
+    assert "ep03.mkv" in child_names
+
+
+def test_expand_folder_files_creates_children_old_format(db_session):
+    """Old-format folder URL (mega.nz/#F!...) is expanded into child records."""
+    folder_url = "https://mega.nz/#F!abc123!folderkey"
     dl = Download(title="Show", media_type="tv")
     df = DownloadFile(url=folder_url)
     dl.files.append(df)
