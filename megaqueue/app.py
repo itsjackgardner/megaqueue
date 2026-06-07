@@ -8,7 +8,7 @@ from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
 from megaqueue import config
-from megaqueue.enums import DownloadStatus, FileStatus
+from megaqueue.enums import DownloadStatus, FileStatus, MediaType, MetadataConfidence, MetadataSource
 from megaqueue.models import db_session, init_db, Download, DownloadFile
 from megaqueue.megabasterd_client import MegabasterdClient
 from megaqueue.worker import start_worker
@@ -61,28 +61,62 @@ def add_download_form():
 
 @app.route("/download", methods=["POST"])
 def add_download():
-    title = request.form.get("title", "").strip()
-    if not title:
-        return redirect(url_for("index"))
-
-    year_str = request.form.get("year", "").strip()
-    year = int(year_str) if year_str else None
-    media_type = request.form.get("media_type", "movie")
+    """Accept one or more mega.nz links. Metadata is resolved later by guessit."""
     links_raw = request.form.get("links", "").strip()
     links = [l.strip() for l in links_raw.splitlines() if l.strip()]
 
     if not links:
         return redirect(url_for("index"))
 
-    dl = Download(title=title, year=year, media_type=media_type, status=DownloadStatus.QUEUED)
+    dl = Download(
+        title=None, year=None, media_type=None,
+        status=DownloadStatus.QUEUED,
+        metadata_confidence=MetadataConfidence.LOW,
+    )
     for link in links:
         dl.files.append(DownloadFile(url=link))
 
     db_session.add(dl)
     db_session.commit()
-    log.info("Queued '%s' (%d links) — worker will submit to megabasterd", title, len(links))
+    log.info("Queued %d link(s) — worker will submit to megabasterd, metadata pending", len(links))
 
     return redirect(url_for("index"))
+
+
+@app.route("/download/<int:download_id>/resolve", methods=["POST"])
+def resolve_download(download_id):
+    """Accept user-supplied metadata for a needs_review download and unblock processing."""
+    dl = db_session.get(Download, download_id)
+    if dl is None or dl.status != DownloadStatus.NEEDS_REVIEW:
+        return redirect(url_for("index"))
+
+    title = request.form.get("title", "").strip()
+    year_str = request.form.get("year", "").strip()
+    media_type_str = request.form.get("media_type", "").strip()
+
+    if not title or media_type_str not in (MediaType.MOVIE.value, MediaType.TV.value):
+        return redirect(url_for("download_detail", download_id=download_id))
+
+    dl.title = title
+    dl.year = int(year_str) if year_str else None
+    dl.media_type = MediaType(media_type_str)
+    dl.metadata_source = MetadataSource.USER
+    dl.metadata_confidence = MetadataConfidence.HIGH
+
+    # Per-file is_extra overrides: form posts a list of file IDs that should be extras.
+    extra_ids = set()
+    for v in request.form.getlist("is_extra"):
+        try:
+            extra_ids.add(int(v))
+        except ValueError:
+            pass
+    for df in dl.leaf_files:
+        df.is_extra = df.id in extra_ids
+
+    dl.status = DownloadStatus.PROCESSING
+    db_session.commit()
+    log.info("User resolved metadata for download %d (%s) — moving to processing", dl.id, dl.title)
+    return redirect(url_for("download_detail", download_id=download_id))
 
 
 @app.route("/download/<int:download_id>")

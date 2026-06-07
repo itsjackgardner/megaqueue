@@ -24,37 +24,90 @@ def test_add_download_form(mock_worker, client, db_session):
 
 @patch("megaqueue.app.start_worker")
 @patch("megaqueue.app.mb_client")
-def test_create_download(mock_mb, mock_worker, client, db_session):
+def test_create_download_links_only(mock_mb, mock_worker, client, db_session):
+    """Submit only accepts links; title/year/media_type are inferred later by guessit."""
     mock_mb.start = MagicMock()
 
     resp = client.post("/download", data={
-        "title": "New Movie",
-        "year": "2024",
-        "media_type": "movie",
         "links": "https://mega.nz/file/abc#key1\nhttps://mega.nz/file/def#key2",
     }, follow_redirects=False)
 
-    assert resp.status_code == 302  # redirect to index
+    assert resp.status_code == 302
 
-    dl = db_session.query(Download).filter_by(title="New Movie").first()
+    dl = db_session.query(Download).first()
     assert dl is not None
-    assert dl.year == 2024
-    assert dl.media_type == "movie"
+    assert dl.title is None
+    assert dl.year is None
+    assert dl.media_type is None
     assert dl.status == "queued"
-    assert dl.downloading_since is None  # not yet submitted to megabasterd
+    assert dl.metadata_confidence == "low"
+    assert dl.metadata_source is None
+    assert dl.downloading_since is None
     assert len(dl.files) == 2
 
 
 @patch("megaqueue.app.start_worker")
 @patch("megaqueue.app.mb_client")
-def test_create_download_empty_title_redirects(mock_mb, mock_worker, client, db_session):
+def test_create_download_empty_links_redirects(mock_mb, mock_worker, client, db_session):
     resp = client.post("/download", data={
-        "title": "",
-        "links": "https://mega.nz/file/abc#key",
+        "links": "",
     }, follow_redirects=False)
 
     assert resp.status_code == 302
     assert db_session.query(Download).count() == 0
+
+
+@patch("megaqueue.app.start_worker")
+def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_session):
+    """Resolve route writes user title/year/media_type and flips NEEDS_REVIEW -> PROCESSING."""
+    dl = Download(status="needs_review", metadata_confidence="low")
+    f1 = DownloadFile(url="u1", name="main.mkv", status="finished")
+    f2 = DownloadFile(url="u2", name="trailer.mkv", status="finished")
+    dl.files.extend([f1, f2])
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+    f1_id = f1.id
+    f2_id = f2.id
+
+    resp = client.post(f"/download/{dl_id}/resolve", data={
+        "title": "Birth",
+        "year": "2004",
+        "media_type": "movie",
+        "is_extra": [str(f2_id)],
+    }, follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.title == "Birth"
+    assert dl.year == 2004
+    assert dl.media_type == "movie"
+    assert dl.status == "processing"
+    assert dl.metadata_source == "user"
+    assert dl.metadata_confidence == "high"
+    assert db_session.get(DownloadFile, f1_id).is_extra is False
+    assert db_session.get(DownloadFile, f2_id).is_extra is True
+
+
+@patch("megaqueue.app.start_worker")
+def test_resolve_rejects_non_needs_review(mock_worker, client, db_session):
+    """Resolve only works on NEEDS_REVIEW downloads."""
+    dl = Download(title="Movie", media_type="movie", status="downloading",
+                  metadata_confidence="high")
+    dl.files.append(DownloadFile(url="u", status="downloading"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/resolve", data={
+        "title": "Other",
+        "media_type": "movie",
+    }, follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.title == "Movie"  # unchanged
+    assert dl.status == "downloading"
 
 
 @patch("megaqueue.app.start_worker")
