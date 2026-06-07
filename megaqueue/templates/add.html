@@ -1,64 +1,21 @@
 {% extends "base.html" %} {% block title_suffix %} — Add Download{% endblock %}
 {% block content %}
-<h1 class="text-xl font-bold mb-6">Add download</h1>
+<h1 class="text-xl font-bold mb-2">Add download</h1>
+<p class="text-sm text-gray-400 mb-6">
+  Paste one or more mega.nz links — one per line. Title, year, and media type
+  are detected from the filenames; you only need to review if detection is
+  ambiguous.
+</p>
 <form method="POST" action="/download" class="space-y-4">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
   <div>
-    <label class="block text-sm text-gray-400 mb-1">Title</label>
-    <input
-      type="text"
-      name="title"
-      required
-      placeholder="e.g. To Live and Die in L.A."
-      class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-    />
-  </div>
-
-  <div>
-    <label class="block text-sm text-gray-400 mb-1">Year (optional)</label>
-    <input
-      type="number"
-      name="year"
-      placeholder="e.g. 1985"
-      min="1900"
-      max="2099"
-      class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-    />
-  </div>
-
-  <div>
-    <label class="block text-sm text-gray-400 mb-1">Type</label>
-    <div class="flex gap-4">
-      <label class="flex items-center gap-2 cursor-pointer">
-        <input
-          type="radio"
-          name="media_type"
-          value="movie"
-          checked
-          class="text-indigo-500"
-        />
-        <span>Movie</span>
-      </label>
-      <label class="flex items-center gap-2 cursor-pointer">
-        <input
-          type="radio"
-          name="media_type"
-          value="tv"
-          class="text-indigo-500"
-        />
-        <span>TV Show</span>
-      </label>
-    </div>
-  </div>
-
-  <div>
     <label class="block text-sm text-gray-400 mb-1"
-      >mega.nz Links (one per line)</label
+      >mega.nz links (one per line)</label
     >
     <textarea
       name="links"
-      rows="5"
+      rows="6"
       required
       placeholder="https://mega.nz/file/..."
       class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-sm"

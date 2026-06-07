@@ -16,16 +16,16 @@
       <div class="flex-1 min-w-0">
         <a
           href="/download/{{ dl.id }}"
-          class="font-medium text-white hover:text-indigo-400 truncate block"
+          class="font-medium {% if dl.title %}text-white{% else %}text-gray-500 italic{% endif %} hover:text-indigo-400 truncate block"
         >
-          {{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}
+          {% if dl.title %}{{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}{% else %}Resolving…{% endif %}
         </a>
         <div class="flex items-center gap-2 mt-1">
           <span
-            class="text-xs px-2 py-0.5 rounded-full {% if dl.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif dl.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif dl.status == 'processing' %}bg-purple-900 text-purple-300 {% elif dl.status == 'complete' %}bg-green-900 text-green-300 {% elif dl.status == 'failed' %}bg-red-900 text-red-300 {% elif dl.status == 'cancelled' %}bg-gray-700 text-gray-400 {% endif %}"
-            >{{ dl.status }}</span
+            class="text-xs px-2 py-0.5 rounded-full {% if dl.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif dl.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif dl.status == 'needs_review' %}bg-orange-900 text-orange-300 {% elif dl.status == 'processing' %}bg-purple-900 text-purple-300 {% elif dl.status == 'complete' %}bg-green-900 text-green-300 {% elif dl.status == 'failed' %}bg-red-900 text-red-300 {% elif dl.status == 'cancelled' %}bg-gray-700 text-gray-400 {% endif %}"
+            >{% if dl.status == 'needs_review' %}review{% else %}{{ dl.status }}{% endif %}</span
           >
-          <span class="text-xs text-gray-500">{{ dl.media_type }}</span>
+          {% if dl.media_type %}<span class="text-xs text-gray-500">{{ dl.media_type }}</span>{% endif %}
           {% set display_files = dl.leaf_files %}
           {% if display_files | length > 1 %}
           {% set finished_count = display_files | selectattr('status', 'equalto', 'finished') | list | length %}
