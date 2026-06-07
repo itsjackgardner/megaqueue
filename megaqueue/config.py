@@ -26,9 +26,6 @@ SECRET_KEY = _env("SECRET_KEY")
 HOST = _env("HOST", "0.0.0.0")
 PORT = int(_env("PORT", "5000"))
 
-# FileBot
-FILEBOT_BIN = _env("FILEBOT_BIN", "filebot")
-
 # Database
 DATABASE_URL = _env("DATABASE_URL", "sqlite:///megaqueue.db")
 

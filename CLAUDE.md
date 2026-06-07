@@ -9,10 +9,16 @@ megaqueue/              # Package directory (all source code)
 ├── __init__.py
 ├── app.py              # Flask app, routes, startup validation
 ├── config.py           # All config via MEGAQUEUE_* env vars
+├── enums.py            # StrEnum types (DownloadStatus, FileStatus, MediaType, …)
 ├── models.py           # SQLAlchemy models (Download, DownloadFile)
-├── worker.py           # Background thread — polls megabasterd, updates DB
+├── migrations.py       # Named, ordered schema migrations called from init_db()
+├── worker.py           # Background thread — drives the poll loop
+├── sync.py             # megabasterd ↔ DB sync (matching, folder expansion, file updates)
+├── lifecycle.py        # Status derivation, post-processing orchestration
+├── mega_urls.py        # Pure URL helpers (normalise, extract_folder_id, is_folder_url)
+├── metadata.py         # guessit-driven metadata aggregation (title/year/media_type)
 ├── megabasterd_client.py  # HTTP client for megabasterd REST API
-├── filebot_organizer.py   # FileBot-based file organization into Plex folders
+├── organiser.py        # Hand-rolled organiser (movies + extras, TV episodes)
 ├── notifications.py    # ntfy.sh push notifications
 ├── static/             # JS, icons, PWA manifest
 └── templates/          # Jinja2 HTML templates
@@ -47,9 +53,14 @@ python run.py
 tests/
 ├── conftest.py                  # Shared fixtures: db_session, app, client, sample_download
 ├── test_models.py               # Model creation, relationships, computed properties
+├── test_migrations.py           # Named migrations idempotent against legacy DBs
 ├── test_megabasterd_client.py   # HTTP client (mocked with `responses` library)
-├── test_worker.py               # URL normalization, file matching, status derivation
-├── test_filebot_organizer.py    # FileBot file routing, archive detection, cleanup (uses tmp_path)
+├── test_mega_urls.py            # URL normalisation, folder-ID extraction, predicates
+├── test_metadata.py             # guessit parse + aggregation + confidence scoring
+├── test_sync.py                 # megabasterd matching, folder expansion, per-file updates
+├── test_lifecycle.py            # status derivation, source-path resolution
+├── test_organiser.py            # Plex-canonical paths, archive extraction (mocked)
+├── test_worker.py               # Poll loop drives sync.* in order
 ├── test_routes.py               # Flask route responses, form handling
 └── test_notifications.py        # ntfy.sh notification formatting
 ```
@@ -58,6 +69,6 @@ tests/
 
 - **Database:** Tests use in-memory SQLite via the `db_session` fixture (conftest.py). Never use the production database.
 - **HTTP mocking:** Use the `responses` library to mock external HTTP calls (megabasterd API, ntfy.sh). Never make real HTTP requests in tests.
-- **Filesystem:** Use pytest's `tmp_path` fixture for tests that need real file operations (organizer tests).
+- **Filesystem:** Use pytest's `tmp_path` fixture for tests that need real file operations (organiser tests).
 - **Flask routes:** Use the `client` fixture with `@patch("megaqueue.app.start_worker")` to avoid starting the background worker. Mock `megaqueue.app.mb_client` for routes that call megabasterd.
-- **Worker tests:** Mock `megaqueue.worker.filebot_organizer`, `megaqueue.worker.notify_completion`, and `megaqueue.worker.notify_failure` to isolate worker logic from side effects.
+- **Lifecycle/sync tests:** Mock `megaqueue.lifecycle.organiser`, `megaqueue.lifecycle.notify_completion`, `megaqueue.lifecycle.notify_failure`, and `megaqueue.sync.notify_needs_review` to isolate logic from side effects.

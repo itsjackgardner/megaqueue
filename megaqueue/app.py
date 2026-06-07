@@ -1,5 +1,4 @@
 import logging
-import subprocess
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 
@@ -189,27 +188,10 @@ def api_status():
 
 # --- Entry point ---
 
-def _validate_filebot():
-    """Check that the FileBot binary is accessible. Logs a warning if not."""
-    try:
-        subprocess.run(
-            [config.FILEBOT_BIN, "-version"],
-            check=True,
-            capture_output=True,
-            timeout=10,
-        )
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "FileBot binary not accessible at: %s — file organization will fail",
-            config.FILEBOT_BIN,
-        )
-
-
 def create_app():
     """Initialize database and start worker, return app."""
     config.validate()
     init_db()
-    _validate_filebot()
     start_worker()
     return app
 
