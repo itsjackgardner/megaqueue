@@ -8,6 +8,7 @@ from flask_wtf import CSRFProtect
 from flask_talisman import Talisman
 
 from megaqueue import config
+from megaqueue.enums import DownloadStatus, FileStatus
 from megaqueue.models import db_session, init_db, Download, DownloadFile
 from megaqueue.megabasterd_client import MegabasterdClient
 from megaqueue.worker import start_worker
@@ -73,7 +74,7 @@ def add_download():
     if not links:
         return redirect(url_for("index"))
 
-    dl = Download(title=title, year=year, media_type=media_type, status="queued")
+    dl = Download(title=title, year=year, media_type=media_type, status=DownloadStatus.QUEUED)
     for link in links:
         dl.files.append(DownloadFile(url=link))
 
@@ -95,12 +96,12 @@ def download_detail(download_id):
 @app.route("/download/<int:download_id>/retry", methods=["POST"])
 def retry_download(download_id):
     dl = db_session.get(Download, download_id)
-    if dl and dl.status in ("failed", "cancelled"):
-        dl.status = "queued"
+    if dl and dl.status in (DownloadStatus.FAILED, DownloadStatus.CANCELLED):
+        dl.status = DownloadStatus.QUEUED
         dl.downloading_since = None
         dl.error_message = None
         for f in dl.files:
-            f.status = "queued"
+            f.status = FileStatus.QUEUED
             f.progress_bytes = 0
             f.total_bytes = 0
             f.speed = 0
@@ -112,8 +113,8 @@ def retry_download(download_id):
 @app.route("/download/<int:download_id>/cancel", methods=["POST"])
 def cancel_download(download_id):
     dl = db_session.get(Download, download_id)
-    if dl and dl.status in ("queued", "downloading"):
-        dl.status = "cancelled"
+    if dl and dl.status in (DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING):
+        dl.status = DownloadStatus.CANCELLED
         db_session.commit()
         try:
             for link in dl.links:

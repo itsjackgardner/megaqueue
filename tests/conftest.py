@@ -19,7 +19,8 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from megaqueue.models import Base, Download, DownloadFile
 from megaqueue import models
 from megaqueue import app as app_module
-from megaqueue import worker as worker_module
+from megaqueue import sync as sync_module
+from megaqueue import lifecycle as lifecycle_module
 
 
 @pytest.fixture()
@@ -34,18 +35,21 @@ def db_session():
     originals = {
         "models": models.db_session,
         "app": app_module.db_session,
-        "worker": worker_module.db_session,
+        "sync": sync_module.db_session,
+        "lifecycle": lifecycle_module.db_session,
     }
     models.db_session = session
     app_module.db_session = session
-    worker_module.db_session = session
+    sync_module.db_session = session
+    lifecycle_module.db_session = session
 
     yield session
 
     session.remove()
     models.db_session = originals["models"]
     app_module.db_session = originals["app"]
-    worker_module.db_session = originals["worker"]
+    sync_module.db_session = originals["sync"]
+    lifecycle_module.db_session = originals["lifecycle"]
     engine.dispose()
 
 
@@ -69,7 +73,8 @@ def client(app):
 @pytest.fixture()
 def sample_download(db_session):
     """Create a sample download with two files."""
-    dl = Download(title="Test Movie", year=2024, media_type="movie", status="queued")
+    from megaqueue.enums import DownloadStatus, MediaType
+    dl = Download(title="Test Movie", year=2024, media_type=MediaType.MOVIE, status=DownloadStatus.QUEUED)
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc123#key1"))
     dl.files.append(DownloadFile(url="https://mega.nz/file/def456#key2"))
     db_session.add(dl)

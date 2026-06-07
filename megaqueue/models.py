@@ -4,9 +4,18 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker, relationship
 
-from megaqueue import config
+from megaqueue import config, migrations
+from megaqueue.enums import DownloadStatus, FileStatus, MediaType
 
 Base = declarative_base()
+
+
+def _enum_column(enum_cls, name, **kwargs):
+    """Build a SQLAlchemy Enum column that stores the enum's string values (not member names)."""
+    return Column(
+        Enum(enum_cls, values_callable=lambda x: [e.value for e in x], name=name),
+        **kwargs,
+    )
 
 
 class DownloadFile(Base):
@@ -17,18 +26,13 @@ class DownloadFile(Base):
     parent_id = Column(Integer, ForeignKey("download_files.id", ondelete="CASCADE"), nullable=True)
     url = Column(String, nullable=False)
     name = Column(String, nullable=True)
-    status = Column(
-        Enum("queued", "downloading", "finished", "failed", name="file_status"),
-        nullable=False,
-        default="queued",
-    )
+    status = _enum_column(FileStatus, name="file_status", nullable=False, default=FileStatus.QUEUED)
     progress_bytes = Column(Integer, default=0)
     total_bytes = Column(Integer, default=0)
     speed = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     file_path = Column(String, nullable=True)
 
-    # Child records created when a folder URL is split by megabasterd into per-file entries.
     children = relationship(
         "DownloadFile",
         foreign_keys="[DownloadFile.parent_id]",
@@ -56,12 +60,8 @@ class Download(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String, nullable=False)
     year = Column(Integer, nullable=True)
-    media_type = Column(Enum("movie", "tv", name="media_type"), nullable=False)
-    status = Column(
-        Enum("queued", "downloading", "processing", "complete", "failed", "cancelled", name="status"),
-        nullable=False,
-        default="queued",
-    )
+    media_type = _enum_column(MediaType, name="media_type", nullable=False)
+    status = _enum_column(DownloadStatus, name="status", nullable=False, default=DownloadStatus.QUEUED)
     downloading_since = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -133,16 +133,8 @@ db_session = scoped_session(session_factory)
 
 
 def init_db():
-    """Create all tables and enable WAL mode."""
+    """Create all tables, enable WAL mode, and run schema migrations."""
     Base.metadata.create_all(engine)
     with engine.connect() as conn:
         conn.exec_driver_sql("PRAGMA journal_mode=WAL")
-        # Migrate: add parent_id column to existing databases that predate this column
-        try:
-            conn.exec_driver_sql(
-                "ALTER TABLE download_files ADD COLUMN parent_id INTEGER REFERENCES download_files(id)"
-            )
-            conn.commit()
-        except Exception:
-            pass  # Column already exists
-        conn.commit()
+        migrations.run_all(conn)
