@@ -224,13 +224,14 @@ def test_update_multi_entry_aggregation(db_session):
 @patch("megaqueue.lifecycle.notify_completion")
 @patch("megaqueue.lifecycle.organiser")
 def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
-    dl = Download(title="Test", media_type="movie", status=DownloadStatus.QUEUED)
+    """Active progress + high-confidence filename keeps status DOWNLOADING (skips review)."""
+    dl = Download(status=DownloadStatus.QUEUED)
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key"))
     db_session.add(dl)
     db_session.commit()
 
     mb_downloads = [
-        {"url": "https://mega.nz/file/abc#key", "name": "movie.mkv",
+        {"url": "https://mega.nz/file/abc#key", "name": "Inception.2010.1080p.BluRay.x264.mkv",
          "bytesLoaded": 100, "bytesTotal": 1000, "speed": 50,
          "finished": False, "status": "Downloading"}
     ]
@@ -240,6 +241,9 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.DOWNLOADING
+    # And guessit resolved metadata on this same tick.
+    assert dl.title == "Inception"
+    assert dl.year == 2010
 
 
 @patch("megaqueue.lifecycle.notify_failure")
@@ -300,8 +304,10 @@ def test_sync_routes_low_confidence_to_needs_review(mock_fb, mock_ok, mock_fail,
     mock_review.assert_called_once()
 
 
-def test_sync_skips_downloads_already_in_needs_review(db_session):
-    """sync_active does not re-process NEEDS_REVIEW downloads on subsequent ticks."""
+@patch("megaqueue.lifecycle.organiser")
+def test_sync_does_not_repost_process_an_in_review_download(mock_fb, db_session):
+    """A NEEDS_REVIEW download is still synced (progress updates flow), but derive
+    keeps it in NEEDS_REVIEW so post_process is not invoked."""
     dl = Download(title="Movie", media_type="movie", status=DownloadStatus.NEEDS_REVIEW,
                   metadata_confidence=MetadataConfidence.LOW)
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status=FileStatus.FINISHED,
@@ -309,14 +315,109 @@ def test_sync_skips_downloads_already_in_needs_review(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    # Status query filters to QUEUED/DOWNLOADING, so this Download is excluded.
-    # Even if it slipped through, the NEEDS_REVIEW check inside the loop
-    # short-circuits before any work.
     client = MagicMock()
-    result = sync_active(client, [])
-    assert result == set()
+    sync_active(client, [])
+
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.NEEDS_REVIEW
+    mock_fb.organize_download.assert_not_called()
+
+
+@patch("megaqueue.lifecycle.organiser")
+def test_sync_single_file_folder_resolves_metadata_during_download(mock_fb, db_session):
+    """Regression: a folder URL that megabasterd splits into a single per-file entry.
+    The expansion populates child.name immediately. metadata.refresh MUST still run
+    so a good filename (with year + quality tags) lands HIGH confidence — not
+    NEEDS_REVIEW. This was the Throne of Blood failure."""
+    folder_url = "https://mega.nz/folder/abc#key"
+    dl = Download(status=DownloadStatus.QUEUED, metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url=folder_url, status=FileStatus.QUEUED))
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [
+        {
+            "url": "https://mega.nz/#N!fileId!fileKey###n=abc",
+            "sourceUrl": folder_url,
+            "name": "Throne of Blood 1957 Criterion (1080p x265 10bit Tigole).mkv",
+            "bytesLoaded": 500_000_000,
+            "bytesTotal": 2_100_000_000,
+            "speed": 4_000_000,
+            "finished": False,
+            "status": "Downloading",
+        }
+    ]
+
+    client = MagicMock()
+    sync_active(client, mb_downloads)
+
+    db_session.refresh(dl)
+    assert dl.status == DownloadStatus.DOWNLOADING, (
+        f"Expected DOWNLOADING after first tick but got {dl.status} — "
+        "metadata.refresh likely didn't run on the folder-expansion tick"
+    )
+    assert dl.title == "Throne of Blood"
+    assert dl.year == 1957
+    assert dl.media_type == "movie"
+    assert dl.metadata_confidence == MetadataConfidence.HIGH
+
+
+@patch("megaqueue.sync.notify_needs_review")
+@patch("megaqueue.lifecycle.organiser")
+def test_sync_low_confidence_folder_enters_needs_review_before_completion(
+    mock_fb, mock_review, db_session
+):
+    """Early-trigger: an in-flight download with low-confidence filenames flips to
+    NEEDS_REVIEW immediately, without waiting for downloads to finish."""
+    folder_url = "https://mega.nz/folder/abc#key"
+    dl = Download(status=DownloadStatus.QUEUED, metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url=folder_url, status=FileStatus.QUEUED))
+    db_session.add(dl)
+    db_session.commit()
+
+    mb_downloads = [
+        {
+            "url": "https://mega.nz/#N!fileId!fileKey###n=abc",
+            "sourceUrl": folder_url,
+            "name": "random.mkv",  # no year, no quality -> LOW
+            "bytesLoaded": 100_000_000,
+            "bytesTotal": 1_000_000_000,
+            "speed": 5_000_000,
+            "finished": False,
+            "status": "Downloading",
+        }
+    ]
+
+    client = MagicMock()
+    sync_active(client, mb_downloads)
+
+    db_session.refresh(dl)
+    assert dl.status == DownloadStatus.NEEDS_REVIEW
+    mock_review.assert_called_once()
+    mock_fb.organize_download.assert_not_called()
+
+
+@patch("megaqueue.lifecycle.organiser")
+def test_sync_recovers_stuck_processing_download(mock_fb, db_session):
+    """A download that was flipped to PROCESSING but never had post_process run
+    (e.g. the resolve route set the status but the worker didn't see it) is
+    recovered on the next tick by re-invoking post_process."""
+    mock_fb.organize_download.return_value = ["/dest/x.mkv"]
+
+    dl = Download(title="X", year=2020, media_type="movie", status=DownloadStatus.PROCESSING,
+                  metadata_confidence=MetadataConfidence.HIGH,
+                  metadata_source="user")
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status=FileStatus.FINISHED,
+                                 name="X.2020.1080p.mkv"))
+    db_session.add(dl)
+    db_session.commit()
+
+    client = MagicMock()
+    sync_active(client, [])
+
+    db_session.refresh(dl)
+    assert dl.status == DownloadStatus.COMPLETE
+    mock_fb.organize_download.assert_called_once()
 
 
 # --- Folder Expansion ---

@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from megaqueue import config, organiser
-from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence
+from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence, MetadataSource
 from megaqueue.models import db_session
 from megaqueue.notifications import notify_completion, notify_failure, notify_needs_review
 
@@ -14,22 +14,30 @@ log = logging.getLogger(__name__)
 def derive_download_status(download):
     """Compute the overall download status from leaf file statuses and metadata confidence.
 
-    All files finished + metadata_confidence == HIGH  -> PROCESSING (run organiser)
-    All files finished + metadata_confidence == LOW   -> NEEDS_REVIEW (block, await user)
-    All files failed                                  -> FAILED
-    Any downloading/finished                          -> DOWNLOADING
-    Otherwise                                         -> QUEUED
+    Order of precedence:
+      1. All files failed                              -> FAILED
+      2. Low confidence with named files (not user-set) -> NEEDS_REVIEW
+         (fires *as soon as* filenames are known — not gated on completion)
+      3. All files finished                            -> PROCESSING (organiser runs)
+      4. Any file downloading or finished              -> DOWNLOADING
+      5. Otherwise                                     -> QUEUED
     """
-    statuses = [f.status for f in download.leaf_files]
+    leaves = download.leaf_files
+    statuses = [f.status for f in leaves]
     if not statuses:
         return download.status
 
-    if all(s == FileStatus.FINISHED for s in statuses):
-        if download.metadata_confidence == MetadataConfidence.HIGH:
-            return DownloadStatus.PROCESSING
-        return DownloadStatus.NEEDS_REVIEW
     if all(s == FileStatus.FAILED for s in statuses):
         return DownloadStatus.FAILED
+
+    has_named = any(f.name for f in leaves)
+    low_confidence = download.metadata_confidence == MetadataConfidence.LOW
+    not_user_set = download.metadata_source != MetadataSource.USER
+    if has_named and low_confidence and not_user_set:
+        return DownloadStatus.NEEDS_REVIEW
+
+    if all(s == FileStatus.FINISHED for s in statuses):
+        return DownloadStatus.PROCESSING
     if any(s in (FileStatus.DOWNLOADING, FileStatus.FINISHED) for s in statuses):
         return DownloadStatus.DOWNLOADING
     return DownloadStatus.QUEUED

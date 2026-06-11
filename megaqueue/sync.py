@@ -185,12 +185,27 @@ def sync_active(client, mb_downloads):
     matched_file_ids = set()
 
     active = db_session.query(Download).filter(
-        Download.status.in_((DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING))
+        Download.status.in_((
+            DownloadStatus.QUEUED,
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.NEEDS_REVIEW,
+            DownloadStatus.PROCESSING,
+        ))
     ).all()
 
     for download in active:
         db_session.refresh(download)
-        if download.status in (DownloadStatus.CANCELLED, DownloadStatus.NEEDS_REVIEW):
+        if download.status == DownloadStatus.CANCELLED:
+            continue
+
+        # Recovery: a download stuck in PROCESSING means post-processing never
+        # completed (e.g. the resolve route flipped it to PROCESSING but no tick
+        # ran the organiser, or the process was killed mid-organise). Re-run.
+        # post_process always exits PROCESSING (to COMPLETE or FAILED), so this
+        # cannot loop.
+        if download.status == DownloadStatus.PROCESSING:
+            log.info("Picking up stuck PROCESSING download '%s' — running post_process", download.title)
+            lifecycle.post_process(download, client)
             continue
 
         initial_matches = match_megabasterd_files(mb_downloads, download.top_level_files)
@@ -202,19 +217,19 @@ def sync_active(client, mb_downloads):
         file_matches = match_megabasterd_files(mb_downloads, download.leaf_files)
         matched_file_ids.update(file_matches.keys())
 
-        name_changed = False
         for df in download.leaf_files:
             mb_entries = file_matches.get(df.id)
             if mb_entries is not None:
                 active_entries = [e for e in mb_entries if e.get("status") != "Pending"]
                 if active_entries:
-                    prev_name = df.name
                     update_file_from_megabasterd(df, active_entries)
-                    if df.name != prev_name:
-                        name_changed = True
 
-        if name_changed:
-            metadata.refresh(download)
+        # Refresh metadata every tick. The function is idempotent: it short-
+        # circuits when no leaf has a name yet, and respects metadata_source=USER.
+        # The previous "only when name changed" guard had a hole: folder expansion
+        # populates names directly on creation, so the subsequent per-file update
+        # didn't trigger a change — and refresh never ran for folder downloads.
+        metadata.refresh(download)
 
         new_status = lifecycle.derive_download_status(download)
 
@@ -229,7 +244,7 @@ def sync_active(client, mb_downloads):
             continue
 
         if new_status == DownloadStatus.NEEDS_REVIEW and download.status != DownloadStatus.NEEDS_REVIEW:
-            log.info("All files finished for '%s' but metadata confidence is low — awaiting review", download.title)
+            log.info("Filenames known for '%s' but metadata confidence is low — awaiting review", download.title)
             download.status = DownloadStatus.NEEDS_REVIEW
             db_session.commit()
             notify_needs_review(download)

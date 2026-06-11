@@ -112,9 +112,14 @@ def resolve_download(download_id):
     for df in dl.leaf_files:
         df.is_extra = df.id in extra_ids
 
-    dl.status = DownloadStatus.PROCESSING
+    # Flip back to DOWNLOADING; the next worker tick will re-derive — either
+    # PROCESSING (if every file is finished, post_process runs inline) or
+    # DOWNLOADING (if files are still in flight). Setting PROCESSING here
+    # would strand the download because the organiser is only run from the
+    # worker thread.
+    dl.status = DownloadStatus.DOWNLOADING
     db_session.commit()
-    log.info("User resolved metadata for download %d (%s) — moving to processing", dl.id, dl.title)
+    log.info("User resolved metadata for download %d (%s) — sync will continue", dl.id, dl.title)
     return redirect(url_for("download_detail", download_id=download_id))
 
 

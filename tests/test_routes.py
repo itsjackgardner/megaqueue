@@ -82,7 +82,10 @@ def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_sessi
     assert dl.title == "Birth"
     assert dl.year == 2004
     assert dl.media_type == "movie"
-    assert dl.status == "processing"
+    # Status is set back to DOWNLOADING — the next sync tick derives the right
+    # state (PROCESSING when all files finished, runs post_process inline).
+    # The route deliberately doesn't strand the download in PROCESSING.
+    assert dl.status == "downloading"
     assert dl.metadata_source == "user"
     assert dl.metadata_confidence == "high"
     assert db_session.get(DownloadFile, f1_id).is_extra is False

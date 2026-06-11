@@ -1,3 +1,5 @@
+import pytest
+
 from megaqueue.enums import MediaType, MetadataConfidence, MetadataSource
 from megaqueue.metadata import (
     parse_filename,
@@ -241,3 +243,143 @@ def test_refresh_no_named_files_is_noop(db_session):
 
     assert dl.title is None
     assert dl.metadata_source is None
+
+
+# --- Predictive pipeline: representative real-world filenames ---
+#
+# This table is the safety net for the kind of regression the user hit with
+# "Throne of Blood 1957 Criterion (1080p x265 10bit Tigole).mkv". Add a row
+# whenever a new release-naming convention shows up in the wild that we want
+# to keep working.
+#
+# Each row is a SINGLE-FILE download (one DownloadFile, one filename). The
+# refresh() output is asserted against the expected aggregated metadata.
+
+_HIGH_CONF_MOVIES = [
+    "Throne of Blood 1957 Criterion (1080p x265 10bit Tigole).mkv",
+    "The.Shawshank.Redemption.1994.1080p.BluRay.x264-RARBG.mkv",
+    "Inception (2010) [1080p] [BluRay] [x265]-RARBG.mkv",
+    "Parasite.2019.KOREAN.2160p.UHD.BluRay.x265-TERMINAL.mkv",
+    "Lawrence.of.Arabia.1962.RESTORED.4K.mkv",
+    "Avatar.2009.EXTENDED.1080p.BluRay.x264-iNK.mkv",
+    "Spirited.Away.2001.JAPANESE.1080p.BluRay.x264.DTS-EVO.mkv",
+    "There Will Be Blood (2007) 1080p BluRay.mkv",
+    "Blade Runner 2049 (2017) 2160p UHD BluRay HDR10.mkv",
+]
+
+_HIGH_CONF_TV = [
+    "Breaking.Bad.S01E01.Pilot.720p.BluRay.mkv",
+    "Gen.V.S02E06.1080p.10bit.WEBRip.6CH.x265.HEVC-PSA.mkv",
+    "Severance S02E03 1080p WEB-DL DDP5.1 H.264-NTb.mkv",
+    "For.All.Mankind.S04E05.mkv",
+    "Twin.Peaks.1x01.Pilot.720p.mkv",
+]
+
+
+@pytest.mark.parametrize("filename", _HIGH_CONF_MOVIES)
+def test_refresh_pipeline_high_confidence_movie(filename, db_session):
+    """A single-file movie download with a well-formed filename resolves to
+    HIGH confidence — guessit gives us title+year, _vote_type says movie, and
+    _score_confidence accepts because the year is present."""
+    dl = Download(metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="u", name=filename, total_bytes=2_000_000_000))
+    db_session.add(dl)
+    db_session.commit()
+
+    refresh(dl)
+
+    assert dl.title, f"title not extracted from {filename!r}"
+    assert dl.year is not None, f"year not extracted from {filename!r}"
+    assert dl.media_type == MediaType.MOVIE
+    assert dl.metadata_confidence == MetadataConfidence.HIGH
+    assert dl.metadata_source == MetadataSource.GUESSIT
+
+
+@pytest.mark.parametrize("filename", _HIGH_CONF_TV)
+def test_refresh_pipeline_high_confidence_tv(filename, db_session):
+    """A single-episode TV download with S/E pattern resolves to HIGH confidence."""
+    dl = Download(metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="u", name=filename, total_bytes=1_500_000_000))
+    db_session.add(dl)
+    db_session.commit()
+
+    refresh(dl)
+
+    assert dl.title, f"title not extracted from {filename!r}"
+    assert dl.media_type == MediaType.TV
+    assert dl.metadata_confidence == MetadataConfidence.HIGH
+    assert dl.metadata_source == MetadataSource.GUESSIT
+
+
+_LOW_CONF_CASES = [
+    # No year on a movie -> LOW.
+    "untitled.mkv",
+    # Generic featurette name with no real metadata.
+    "Trailer.mkv",
+    # Just an episode number, ambiguous.
+    "01.mkv",
+]
+
+
+@pytest.mark.parametrize("filename", _LOW_CONF_CASES)
+def test_refresh_pipeline_low_confidence(filename, db_session):
+    """Filenames that don't give guessit enough signal land in LOW confidence,
+    which (via lifecycle.derive_download_status) routes to NEEDS_REVIEW."""
+    dl = Download(metadata_confidence=MetadataConfidence.HIGH)  # start high to confirm it gets downgraded
+    dl.files.append(DownloadFile(url="u", name=filename, total_bytes=1_000_000_000))
+    db_session.add(dl)
+    db_session.commit()
+
+    refresh(dl)
+
+    assert dl.metadata_confidence == MetadataConfidence.LOW, (
+        f"{filename!r} should be LOW confidence but came out HIGH "
+        f"(title={dl.title!r}, year={dl.year}, media_type={dl.media_type})"
+    )
+
+
+def test_refresh_movie_folder_with_extras_keeps_main_high_confidence(db_session):
+    """Multi-file movie folder: main feature + featurettes resolves to HIGH."""
+    dl = Download(metadata_confidence=MetadataConfidence.LOW)
+    dl.files.append(DownloadFile(url="u1", total_bytes=8_400_000_000,
+                                 name="Birth.2004.Criterion.1080p.BluRay.x265.HEVC.FLAC-SARTRE.mkv"))
+    dl.files.append(DownloadFile(url="u2", total_bytes=17_000_000, name="Trailer.mkv"))
+    dl.files.append(DownloadFile(url="u3", total_bytes=232_000_000, name="Making Birth.mkv"))
+    dl.files.append(DownloadFile(url="u4", total_bytes=185_000_000,
+                                 name="The Cinematography of Birth.mkv"))
+    dl.files.append(DownloadFile(url="u5", total_bytes=119_000_000,
+                                 name="Jonathan Glazer and actor Nicole Kidman.mkv"))
+    db_session.add(dl)
+    db_session.commit()
+
+    refresh(dl)
+
+    assert dl.title == "Birth"
+    assert dl.year == 2004
+    assert dl.media_type == MediaType.MOVIE
+    assert dl.metadata_confidence == MetadataConfidence.HIGH
+    # The main feature wins the not-extra slot.
+    main = next(f for f in dl.leaf_files if f.name.startswith("Birth"))
+    assert main.is_extra is False
+    assert all(f.is_extra for f in dl.leaf_files if not f.name.startswith("Birth"))
+
+
+def test_refresh_full_season_pack_high_confidence(db_session):
+    """8-episode season pack with consistent series name resolves to HIGH."""
+    dl = Download(metadata_confidence=MetadataConfidence.LOW)
+    for i in range(1, 9):
+        dl.files.append(DownloadFile(
+            url=f"u{i}",
+            name=f"Gen.V.S02E0{i}.1080p.10bit.WEBRip.6CH.x265.HEVC-PSA.mkv",
+            total_bytes=1_500_000_000,
+        ))
+    db_session.add(dl)
+    db_session.commit()
+
+    refresh(dl)
+
+    assert dl.title == "Gen V"
+    assert dl.media_type == MediaType.TV
+    assert dl.metadata_confidence == MetadataConfidence.HIGH
+    # All TV leaves stay as non-extras.
+    assert all(f.is_extra is False for f in dl.leaf_files)
