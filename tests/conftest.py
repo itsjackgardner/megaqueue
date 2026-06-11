@@ -21,6 +21,7 @@ from megaqueue import models
 from megaqueue import app as app_module
 from megaqueue import sync as sync_module
 from megaqueue import lifecycle as lifecycle_module
+from megaqueue import log_handler as log_handler_module
 
 
 @pytest.fixture()
@@ -37,11 +38,13 @@ def db_session():
         "app": app_module.db_session,
         "sync": sync_module.db_session,
         "lifecycle": lifecycle_module.db_session,
+        "log_handler": log_handler_module.db_session,
     }
     models.db_session = session
     app_module.db_session = session
     sync_module.db_session = session
     lifecycle_module.db_session = session
+    log_handler_module.db_session = session
 
     yield session
 
@@ -50,6 +53,7 @@ def db_session():
     app_module.db_session = originals["app"]
     sync_module.db_session = originals["sync"]
     lifecycle_module.db_session = originals["lifecycle"]
+    log_handler_module.db_session = originals["log_handler"]
     engine.dispose()
 
 

@@ -92,11 +92,7 @@ def maybe_expand_folder_files(download, initial_matches):
             )
             db_session.add(child)
 
-        log.info(
-            "Expanded folder '%s' into %d child DownloadFile records",
-            df.url,
-            len(mb_entries),
-        )
+        log.info("Expanded folder into %d files", len(mb_entries))
 
 
 def update_file_from_megabasterd(df, mb_entries):
@@ -291,8 +287,8 @@ def integrity_sweep(matched_file_ids):
             continue
 
         for df in unmatched_files:
-            log.warning("File '%s' (id=%d) not found in megabasterd after %ds",
-                        df.name or df.url, df.id, int(age))
+            log.warning("File '%s' not found in megabasterd after %ds",
+                        df.name or df.url, int(age))
             df.status = FileStatus.FAILED
             df.error_message = "Disappeared from megabasterd"
 

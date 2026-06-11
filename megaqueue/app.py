@@ -1,6 +1,6 @@
 import logging
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 
 log = logging.getLogger(__name__)
 from flask_wtf import CSRFProtect
@@ -27,6 +27,7 @@ Talisman(
         "default-src": "'self'",
         "script-src": ["'self'", "https://cdn.tailwindcss.com"],
         "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "connect-src": "'self'",
         "worker-src": "'self'",
     },
 )
@@ -77,7 +78,7 @@ def add_download():
 
     db_session.add(dl)
     db_session.commit()
-    log.info("Queued %d link(s) — worker will submit to megabasterd, metadata pending", len(links))
+    log.info("Queued %d link(s) — will submit to megabasterd", len(links))
 
     return redirect(url_for("index"))
 
@@ -119,7 +120,7 @@ def resolve_download(download_id):
     # worker thread.
     dl.status = DownloadStatus.DOWNLOADING
     db_session.commit()
-    log.info("User resolved metadata for download %d (%s) — sync will continue", dl.id, dl.title)
+    log.info("User resolved metadata for '%s' — sync will continue", dl.title)
     return redirect(url_for("download_detail", download_id=download_id))
 
 
@@ -182,6 +183,52 @@ def clear509(download_id):
 
 # --- API ---
 
+@app.route("/logs")
+def logs_page():
+    return render_template("logs.html")
+
+
+@app.route("/api/logs")
+def api_logs():
+    limit = min(int(request.args.get("limit", 200)), 1000)
+    from megaqueue.models import LogEntry
+    entries = db_session.query(LogEntry).order_by(
+        LogEntry.id.desc()
+    ).limit(limit).all()
+    return jsonify([
+        {
+            "id": e.id,
+            "timestamp": e.timestamp.isoformat(),
+            "level": e.level,
+            "module": e.module,
+            "message": e.message,
+        }
+        for e in reversed(entries)
+    ])
+
+
+@app.route("/api/logs/stream")
+def api_logs_stream():
+    from megaqueue.log_handler import log_handler
+
+    def generate():
+        q = log_handler.subscribe()
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=30)
+                    yield f"data: {event}\n\n"
+                except Exception:
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            log_handler.unsubscribe(q)
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.route("/api/status")
 def api_status():
     downloads = db_session.query(Download).order_by(
@@ -197,6 +244,12 @@ def create_app():
     """Initialize database and start worker, return app."""
     config.validate()
     init_db()
+
+    from megaqueue.log_handler import log_handler
+    mq_logger = logging.getLogger("megaqueue")
+    mq_logger.addHandler(log_handler)
+    mq_logger.setLevel(logging.DEBUG)
+
     start_worker()
     return app
 

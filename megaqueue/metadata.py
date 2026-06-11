@@ -179,12 +179,22 @@ def refresh(download):
             df.is_extra = False
 
     if download.metadata_source == MetadataSource.USER:
-        # Honour user-supplied title/year/media_type; only is_extra flags
-        # (set above) flow back into the DB.
         return
+
+    confidence = _score_confidence(media_type, title, year, parsed_per_file)
+
+    changed = (download.title != title or download.year != year
+               or download.media_type != media_type
+               or download.metadata_confidence != confidence)
 
     download.title = title
     download.year = year
     download.media_type = media_type
-    download.metadata_confidence = _score_confidence(media_type, title, year, parsed_per_file)
+    download.metadata_confidence = confidence
     download.metadata_source = MetadataSource.GUESSIT
+
+    if changed and title:
+        year_str = f" ({year})" if year else ""
+        type_str = media_type.value if media_type else "unknown"
+        log.info("Resolved '%s'%s as %s, confidence %s",
+                 title, year_str, type_str, confidence.value)

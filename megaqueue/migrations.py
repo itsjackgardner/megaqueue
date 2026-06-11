@@ -85,12 +85,25 @@ def _widen_status_enum(conn):
     conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
 
+def _create_log_entries_table(conn):
+    conn.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS log_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME NOT NULL,
+            level TEXT NOT NULL,
+            module TEXT NOT NULL,
+            message TEXT NOT NULL
+        )
+    """)
+
+
 MIGRATIONS = [
     ("add_parent_id_column", _add_parent_id_column),
     ("add_metadata_confidence_column", _add_metadata_confidence_column),
     ("add_metadata_source_column", _add_metadata_source_column),
     ("add_is_extra_column", _add_is_extra_column),
     ("widen_status_enum", _widen_status_enum),
+    ("create_log_entries_table", _create_log_entries_table),
 ]
 
 

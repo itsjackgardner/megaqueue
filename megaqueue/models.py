@@ -137,6 +137,16 @@ class Download(Base):
         }
 
 
+class LogEntry(Base):
+    __tablename__ = "log_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    level = Column(String, nullable=False)
+    module = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+
+
 # Database setup
 engine = create_engine(config.DATABASE_URL, echo=False)
 session_factory = sessionmaker(bind=engine)

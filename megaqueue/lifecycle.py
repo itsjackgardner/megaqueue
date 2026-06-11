@@ -64,6 +64,7 @@ def resolve_source_paths(download):
 
 def post_process(download, client):
     """Organize files, send notification, and clear from megabasterd."""
+    log.info("Post-processing started for '%s'", download.title)
     try:
         source_paths = resolve_source_paths(download)
         final_paths = organiser.organize_download(download, source_paths)

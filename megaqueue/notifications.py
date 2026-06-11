@@ -17,6 +17,7 @@ def _send(title, message, priority="default"):
             headers={"Title": title, "Priority": priority},
             timeout=10,
         )
+        log.info("Push notification sent: %s — %s", title, message)
     except Exception as e:
         log.error("Failed to send notification: %s", e)
 

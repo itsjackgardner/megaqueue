@@ -21,11 +21,14 @@
       class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between"
     >
       <a href="/" class="text-xl font-bold text-white">movie dog</a>
-      <a
-        href="/download/add"
-        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-medium"
-        >+ Add</a
-      >
+      <div class="flex items-center gap-3">
+        <a href="/logs" class="text-sm text-gray-400 hover:text-white">Logs</a>
+        <a
+          href="/download/add"
+          class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-medium"
+          >+ Add</a
+        >
+      </div>
     </nav>
     <main class="max-w-2xl mx-auto px-4 py-6">
       {% block content %}{% endblock %}

@@ -151,6 +151,7 @@ def organize_download(download, source_paths):
             leaf = leaf_files[i] if i < len(leaf_files) else None
 
             if _is_archive(src):
+                log.info("Extracting archive '%s'", src.name)
                 _extract_archive(src, temp_dir)
                 extracted = sorted(
                     [p for p in temp_dir.rglob("*") if p.is_file()],
