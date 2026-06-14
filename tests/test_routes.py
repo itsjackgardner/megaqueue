@@ -58,8 +58,8 @@ def test_create_download_empty_links_redirects(mock_mb, mock_worker, client, db_
 
 
 @patch("megaqueue.app.start_worker")
-def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_session):
-    """Resolve route writes user title/year/media_type and flips NEEDS_REVIEW -> PROCESSING."""
+def test_rename_needs_review_writes_metadata_and_unblocks(mock_worker, client, db_session):
+    """Rename route writes user metadata and flips NEEDS_REVIEW -> DOWNLOADING."""
     dl = Download(status="needs_review", metadata_confidence="low")
     f1 = DownloadFile(url="u1", name="main.mkv", status="finished")
     f2 = DownloadFile(url="u2", name="trailer.mkv", status="finished")
@@ -70,7 +70,7 @@ def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_sessi
     f1_id = f1.id
     f2_id = f2.id
 
-    resp = client.post(f"/download/{dl_id}/resolve", data={
+    resp = client.post(f"/download/{dl_id}/rename", data={
         "title": "Birth",
         "year": "2004",
         "media_type": "movie",
@@ -82,9 +82,6 @@ def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_sessi
     assert dl.title == "Birth"
     assert dl.year == 2004
     assert dl.media_type == "movie"
-    # Status is set back to DOWNLOADING — the next sync tick derives the right
-    # state (PROCESSING when all files finished, runs post_process inline).
-    # The route deliberately doesn't strand the download in PROCESSING.
     assert dl.status == "downloading"
     assert dl.metadata_source == "user"
     assert dl.metadata_confidence == "high"
@@ -93,24 +90,89 @@ def test_resolve_writes_user_metadata_and_unblocks(mock_worker, client, db_sessi
 
 
 @patch("megaqueue.app.start_worker")
-def test_resolve_rejects_non_needs_review(mock_worker, client, db_session):
-    """Resolve only works on NEEDS_REVIEW downloads."""
-    dl = Download(title="Movie", media_type="movie", status="downloading",
-                  metadata_confidence="high")
+def test_rename_downloading_writes_metadata_keeps_status(mock_worker, client, db_session):
+    """Rename on a downloading download writes metadata but does not change status."""
+    dl = Download(title="Old Title", media_type="movie", status="downloading",
+                  metadata_confidence="high", metadata_source="guessit")
     dl.files.append(DownloadFile(url="u", status="downloading"))
     db_session.add(dl)
     db_session.commit()
     dl_id = dl.id
 
-    resp = client.post(f"/download/{dl_id}/resolve", data={
-        "title": "Other",
+    resp = client.post(f"/download/{dl_id}/rename", data={
+        "title": "New Title",
+        "year": "2020",
+        "media_type": "tv",
+    }, follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.title == "New Title"
+    assert dl.year == 2020
+    assert dl.media_type == "tv"
+    assert dl.status == "downloading"
+    assert dl.metadata_source == "user"
+    assert dl.metadata_confidence == "high"
+
+
+@patch("megaqueue.app.start_worker")
+def test_rename_queued_writes_metadata_keeps_status(mock_worker, client, db_session):
+    """Rename on a queued download writes metadata but does not change status."""
+    dl = Download(status="queued", metadata_confidence="low")
+    dl.files.append(DownloadFile(url="u", status="queued"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/rename", data={
+        "title": "My Movie",
+        "year": "2024",
         "media_type": "movie",
     }, follow_redirects=False)
     assert resp.status_code == 302
 
     dl = db_session.get(Download, dl_id)
-    assert dl.title == "Movie"  # unchanged
-    assert dl.status == "downloading"
+    assert dl.title == "My Movie"
+    assert dl.year == 2024
+    assert dl.media_type == "movie"
+    assert dl.status == "queued"
+    assert dl.metadata_source == "user"
+    assert dl.metadata_confidence == "high"
+
+
+@patch("megaqueue.app.start_worker")
+def test_rename_rejected_for_terminal_statuses(mock_worker, client, db_session):
+    """Rename is rejected for complete, failed, and cancelled downloads."""
+    for status in ("complete", "failed", "cancelled"):
+        dl = Download(title="Original", media_type="movie", status=status,
+                      metadata_confidence="high")
+        dl.files.append(DownloadFile(url="u", status="finished"))
+        db_session.add(dl)
+        db_session.commit()
+        dl_id = dl.id
+
+        resp = client.post(f"/download/{dl_id}/rename", data={
+            "title": "Changed",
+            "media_type": "movie",
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+
+        dl = db_session.get(Download, dl_id)
+        assert dl.title == "Original"
+
+
+@patch("megaqueue.app.start_worker")
+def test_old_resolve_url_not_found(mock_worker, client, db_session):
+    """The old /resolve URL no longer matches a route."""
+    dl = Download(status="needs_review", metadata_confidence="low")
+    dl.files.append(DownloadFile(url="u", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+
+    resp = client.post(f"/download/{dl.id}/resolve", data={
+        "title": "T", "media_type": "movie",
+    }, follow_redirects=False)
+    assert resp.status_code == 404
 
 
 @patch("megaqueue.app.start_worker")

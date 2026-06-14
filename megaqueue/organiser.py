@@ -12,6 +12,7 @@ import logging
 import re
 import shutil
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from megaqueue.metadata import parse_filename
 log = logging.getLogger(__name__)
 
 ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z", ".001"}
+
+# Windows can briefly refuse a move (WinError 32) while megabasterd releases its
+# handle, or while Plex/antivirus scans the new file. Retry before giving up.
+MOVE_RETRIES = 5
+MOVE_RETRY_DELAY = 2  # seconds between attempts
 
 
 def _is_archive(path):
@@ -103,11 +109,28 @@ def _route(file_path, download, leaf_file):
 
 
 def _move(src, dest):
-    """Move src to dest, creating parent dirs and returning dest as a string."""
+    """Move src to dest, creating parent dirs and returning dest as a string.
+
+    Retries on transient OS-level file locks (notably Windows WinError 32):
+    even after megabasterd is told to release the download, the handle, the
+    Plex scanner, or antivirus can briefly keep the file open.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(src), str(dest))
-    log.info("Moved %s -> %s", src, dest)
-    return str(dest)
+    last_err = None
+    for attempt in range(1, MOVE_RETRIES + 1):
+        try:
+            shutil.move(str(src), str(dest))
+            log.info("Moved %s -> %s", src, dest)
+            return str(dest)
+        except OSError as e:
+            last_err = e
+            log.warning(
+                "Move attempt %d/%d failed for '%s': %s",
+                attempt, MOVE_RETRIES, src, e,
+            )
+            if attempt < MOVE_RETRIES:
+                time.sleep(MOVE_RETRY_DELAY)
+    raise last_err
 
 
 def _organize_one(file_path, download, leaf_file):

@@ -83,12 +83,13 @@ def add_download():
     return redirect(url_for("index"))
 
 
-@app.route("/download/<int:download_id>/resolve", methods=["POST"])
-def resolve_download(download_id):
-    """Accept user-supplied metadata for a needs_review download and unblock processing."""
+@app.route("/download/<int:download_id>/rename", methods=["POST"])
+def rename_download(download_id):
+    """Accept user-supplied metadata for an active download."""
+    ALLOWED = (DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING, DownloadStatus.NEEDS_REVIEW)
     dl = db_session.get(Download, download_id)
-    if dl is None or dl.status != DownloadStatus.NEEDS_REVIEW:
-        return redirect(url_for("index"))
+    if dl is None or dl.status not in ALLOWED:
+        return redirect(url_for("download_detail", download_id=download_id))
 
     title = request.form.get("title", "").strip()
     year_str = request.form.get("year", "").strip()
@@ -103,7 +104,6 @@ def resolve_download(download_id):
     dl.metadata_source = MetadataSource.USER
     dl.metadata_confidence = MetadataConfidence.HIGH
 
-    # Per-file is_extra overrides: form posts a list of file IDs that should be extras.
     extra_ids = set()
     for v in request.form.getlist("is_extra"):
         try:
@@ -113,14 +113,10 @@ def resolve_download(download_id):
     for df in dl.leaf_files:
         df.is_extra = df.id in extra_ids
 
-    # Flip back to DOWNLOADING; the next worker tick will re-derive — either
-    # PROCESSING (if every file is finished, post_process runs inline) or
-    # DOWNLOADING (if files are still in flight). Setting PROCESSING here
-    # would strand the download because the organiser is only run from the
-    # worker thread.
-    dl.status = DownloadStatus.DOWNLOADING
+    if dl.status == DownloadStatus.NEEDS_REVIEW:
+        dl.status = DownloadStatus.DOWNLOADING
     db_session.commit()
-    log.info("User resolved metadata for '%s' — sync will continue", dl.title)
+    log.info("User set metadata for '%s' — metadata_source=user", dl.title)
     return redirect(url_for("download_detail", download_id=download_id))
 
 

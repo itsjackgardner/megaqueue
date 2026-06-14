@@ -65,6 +65,21 @@ def resolve_source_paths(download):
 def post_process(download, client):
     """Organize files, send notification, and clear from megabasterd."""
     log.info("Post-processing started for '%s'", download.title)
+
+    # Release megabasterd's file handles *before* organising. On Windows the OS
+    # refuses to move a file another process still has open (WinError 32), and
+    # megabasterd keeps the finished download open until it's cleared. stop with
+    # delete=False removes it from megabasterd's list but leaves the file on disk
+    # for the organiser to move.
+    stopped_urls = set()
+    for df in download.files:
+        if df.url and df.url not in stopped_urls:
+            try:
+                client.stop(df.url, delete=False)
+                stopped_urls.add(df.url)
+            except Exception:
+                pass
+
     try:
         source_paths = resolve_source_paths(download)
         final_paths = organiser.organize_download(download, source_paths)
@@ -80,12 +95,3 @@ def post_process(download, client):
         download.error_message = f"File organization failed: {e}"
         db_session.commit()
         notify_failure(download)
-
-    stopped_urls = set()
-    for df in download.files:
-        if df.url and df.url not in stopped_urls:
-            try:
-                client.stop(df.url, delete=False)
-                stopped_urls.add(df.url)
-            except Exception:
-                pass

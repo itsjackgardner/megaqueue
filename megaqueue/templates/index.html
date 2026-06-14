@@ -14,12 +14,19 @@
   >
     <div class="flex items-start justify-between gap-2">
       <div class="flex-1 min-w-0">
-        <a
-          href="/download/{{ dl.id }}"
-          class="font-medium {% if dl.title %}text-white{% else %}text-gray-500 italic{% endif %} hover:text-indigo-400 truncate block"
-        >
-          {% if dl.title %}{{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}{% else %}Resolving…{% endif %}
-        </a>
+        <div class="flex items-center gap-2">
+          <a
+            href="/download/{{ dl.id }}"
+            class="font-medium {% if dl.title %}text-white{% else %}text-gray-500 italic{% endif %} hover:text-indigo-400 truncate"
+          >
+            {% if dl.title %}{{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}{% else %}Resolving…{% endif %}
+          </a>
+          {% if dl.status in ('queued', 'downloading', 'needs_review') %}
+          <a href="/download/{{ dl.id }}" title="Edit details" class="text-gray-500 hover:text-indigo-400 flex-shrink-0">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+          </a>
+          {% endif %}
+        </div>
         <div class="flex items-center gap-2 mt-1">
           <span
             class="text-xs px-2 py-0.5 rounded-full {% if dl.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif dl.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif dl.status == 'needs_review' %}bg-orange-900 text-orange-300 {% elif dl.status == 'processing' %}bg-purple-900 text-purple-300 {% elif dl.status == 'complete' %}bg-green-900 text-green-300 {% elif dl.status == 'failed' %}bg-red-900 text-red-300 {% elif dl.status == 'cancelled' %}bg-gray-700 text-gray-400 {% endif %}"

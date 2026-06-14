@@ -1,3 +1,4 @@
+import shutil
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -6,6 +7,7 @@ from megaqueue.enums import FileStatus, MediaType
 from megaqueue.models import Download, DownloadFile
 from megaqueue.organiser import (
     _is_archive,
+    _move,
     _sanitize,
     _route_movie_main,
     _route_movie_extra,
@@ -215,3 +217,45 @@ def test_organize_with_archive_calls_extractor(mock_extract, db_session, tmp_pat
 
     mock_extract.assert_called_once()
     assert paths[0] == str(plex / "Inception (2010)" / "Inception (2010).mkv")
+
+
+# --- Move retry on transient file locks (WinError 32) ---
+
+@patch("megaqueue.organiser.time.sleep")
+def test_move_retries_on_locked_file_then_succeeds(mock_sleep, tmp_path):
+    """A transient OSError (file locked) is retried; a later success completes the move."""
+    src = tmp_path / "src.mkv"
+    src.write_text("video")
+    dest = tmp_path / "out" / "dest.mkv"
+
+    real_move = shutil.move
+    calls = {"n": 0}
+
+    def flaky_move(s, d):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError(32, "The process cannot access the file")
+        return real_move(s, d)
+
+    with patch("megaqueue.organiser.shutil.move", side_effect=flaky_move):
+        result = _move(src, dest)
+
+    assert result == str(dest)
+    assert dest.exists()
+    assert calls["n"] == 2
+    mock_sleep.assert_called_once()  # slept once between the two attempts
+
+
+@patch("megaqueue.organiser.time.sleep")
+def test_move_raises_after_exhausting_retries(mock_sleep, tmp_path):
+    """A persistently locked file raises the last OSError after all retries."""
+    src = tmp_path / "src.mkv"
+    src.write_text("video")
+    dest = tmp_path / "out" / "dest.mkv"
+
+    with patch("megaqueue.organiser.shutil.move",
+               side_effect=OSError(32, "still locked")) as mock_move:
+        with pytest.raises(OSError):
+            _move(src, dest)
+
+    assert mock_move.call_count == 5  # MOVE_RETRIES

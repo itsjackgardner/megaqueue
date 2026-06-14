@@ -47,14 +47,23 @@ endblock %} {% block content %}
   </div>
   {% endif %}
 
-  {% if download.status == 'needs_review' %}
-  <div class="bg-orange-900/20 border border-orange-700 rounded p-4 mb-4">
+  {% if download.status in ('queued', 'downloading', 'needs_review') %}
+  {% set is_review = download.status == 'needs_review' %}
+  <div class="{% if is_review %}bg-orange-900/20 border border-orange-700{% else %}bg-gray-900/50 border border-gray-700{% endif %} rounded p-4 mb-4">
+    {% if is_review %}
     <h2 class="text-sm font-semibold text-orange-300 mb-1">Review needed</h2>
     <p class="text-xs text-gray-400 mb-3">
       We couldn't confidently identify this download. Confirm the details below
       to continue file organisation.
     </p>
-    <form method="POST" action="/download/{{ download.id }}/resolve" class="space-y-3">
+    {% else %}
+    <details id="rename-details">
+      <summary class="text-sm font-medium text-gray-300 cursor-pointer hover:text-white">Edit details</summary>
+    </details>
+    {% endif %}
+    <form method="POST" action="/download/{{ download.id }}/rename"
+      class="space-y-3 {% if not is_review %}mt-3{% endif %}"
+      {% if not is_review %}id="rename-form" style="display: none;"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
       <div>
@@ -102,11 +111,18 @@ endblock %} {% block content %}
       {% endif %}
 
       <button type="submit"
-        class="bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium px-4 py-2 rounded">
-        Confirm and continue
+        class="{% if is_review %}bg-orange-600 hover:bg-orange-700{% else %}bg-indigo-600 hover:bg-indigo-700{% endif %} text-white text-sm font-medium px-4 py-2 rounded">
+        {% if is_review %}Confirm and continue{% else %}Save{% endif %}
       </button>
     </form>
   </div>
+  {% if not is_review %}
+  <script>
+    document.getElementById('rename-details').addEventListener('toggle', function() {
+      document.getElementById('rename-form').style.display = this.open ? '' : 'none';
+    });
+  </script>
+  {% endif %}
   {% endif %}
 
   <!-- Per-file breakdown — shows children for folder downloads, direct files otherwise -->
