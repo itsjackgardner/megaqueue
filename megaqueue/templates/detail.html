@@ -116,13 +116,6 @@ endblock %} {% block content %}
       </button>
     </form>
   </div>
-  {% if not is_review %}
-  <script>
-    document.getElementById('rename-details').addEventListener('toggle', function() {
-      document.getElementById('rename-form').style.display = this.open ? '' : 'none';
-    });
-  </script>
-  {% endif %}
   {% endif %}
 
   <!-- Per-file breakdown — shows children for folder downloads, direct files otherwise -->
@@ -194,4 +187,6 @@ endblock %} {% block content %}
     </form>
   </div>
 </div>
+{% endblock %} {% block scripts %}
+<script src="/static/detail.js"></script>
 {% endblock %}

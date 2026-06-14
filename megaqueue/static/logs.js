@@ -1,0 +1,116 @@
+const MODULE_COLOURS = {
+  sync: { text: "text-blue-400", bg: "bg-blue-900", border: "border-blue-700" },
+  worker: { text: "text-gray-400", bg: "bg-gray-700", border: "border-gray-600" },
+  metadata: { text: "text-purple-400", bg: "bg-purple-900", border: "border-purple-700" },
+  organiser: { text: "text-green-400", bg: "bg-green-900", border: "border-green-700" },
+  lifecycle: { text: "text-orange-400", bg: "bg-orange-900", border: "border-orange-700" },
+  notifications: { text: "text-teal-400", bg: "bg-teal-900", border: "border-teal-700" },
+  app: { text: "text-gray-300", bg: "bg-gray-700", border: "border-gray-600" },
+  migrations: { text: "text-yellow-400", bg: "bg-yellow-900", border: "border-yellow-700" },
+};
+
+const LEVEL_COLOURS = {
+  ERROR: "text-red-400",
+  WARNING: "text-yellow-400",
+  INFO: "",
+};
+
+const DEFAULT_COLOUR = { text: "text-gray-400", bg: "bg-gray-700", border: "border-gray-600" };
+
+const container = document.getElementById("log-container");
+const logList = document.getElementById("log-list");
+const filtersEl = document.getElementById("filters");
+
+let autoScroll = true;
+let hiddenModules = new Set();
+let knownModules = new Set();
+
+function moduleColour(mod) {
+  return MODULE_COLOURS[mod] || DEFAULT_COLOUR;
+}
+
+function formatTime(iso) {
+  const d = new Date(iso + "Z");
+  return d.toLocaleTimeString("en-GB", { hour12: false });
+}
+
+function createLogRow(entry) {
+  const row = document.createElement("div");
+  row.className = "flex gap-3 px-3 py-0.5 hover:bg-gray-700/50";
+  row.dataset.module = entry.module;
+  if (hiddenModules.has(entry.module)) row.style.display = "none";
+
+  const col = moduleColour(entry.module);
+  const lvl = LEVEL_COLOURS[entry.level] || "";
+  const msgClass = entry.level === "ERROR" ? "text-red-300" : entry.level === "WARNING" ? "text-yellow-200" : "text-gray-200";
+
+  row.innerHTML =
+    `<span class="text-gray-500 shrink-0">${formatTime(entry.timestamp)}</span>` +
+    `<span class="${col.text} shrink-0 w-24 text-right">${entry.module}</span>` +
+    `<span class="${msgClass}">${escapeHtml(entry.message)}</span>`;
+
+  return row;
+}
+
+function escapeHtml(s) {
+  const el = document.createElement("span");
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+function appendEntry(entry) {
+  registerModule(entry.module);
+  const row = createLogRow(entry);
+  logList.appendChild(row);
+  if (autoScroll) container.scrollTop = container.scrollHeight;
+}
+
+function registerModule(mod) {
+  if (knownModules.has(mod)) return;
+  knownModules.add(mod);
+  renderFilters();
+}
+
+function renderFilters() {
+  filtersEl.innerHTML = "";
+  for (const mod of [...knownModules].sort()) {
+    const col = moduleColour(mod);
+    const active = !hiddenModules.has(mod);
+    const chip = document.createElement("button");
+    chip.className = `px-2 py-0.5 rounded text-xs border ${active ? col.bg + " " + col.border + " " + col.text : "bg-gray-800 border-gray-600 text-gray-500"}`;
+    chip.textContent = mod;
+    chip.onclick = () => toggleModule(mod);
+    filtersEl.appendChild(chip);
+  }
+}
+
+function toggleModule(mod) {
+  if (hiddenModules.has(mod)) {
+    hiddenModules.delete(mod);
+  } else {
+    hiddenModules.add(mod);
+  }
+  renderFilters();
+  for (const row of logList.children) {
+    if (row.dataset.module === mod) {
+      row.style.display = hiddenModules.has(mod) ? "none" : "";
+    }
+  }
+}
+
+container.addEventListener("scroll", () => {
+  const threshold = 40;
+  autoScroll = container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
+});
+
+fetch("/api/logs")
+  .then((r) => r.json())
+  .then((entries) => {
+    for (const e of entries) appendEntry(e);
+  });
+
+const evtSource = new EventSource("/api/logs/stream");
+evtSource.onmessage = (e) => {
+  const entry = JSON.parse(e.data);
+  appendEntry(entry);
+};

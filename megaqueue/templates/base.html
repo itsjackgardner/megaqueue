@@ -34,10 +34,6 @@
       {% block content %}{% endblock %}
     </main>
     {% block scripts %}{% endblock %}
-    <script>
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/static/sw.js");
-      }
-    </script>
+    <script src="/static/register-sw.js"></script>
   </body>
 </html>

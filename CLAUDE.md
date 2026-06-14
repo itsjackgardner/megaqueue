@@ -34,6 +34,10 @@ requirements-dev.txt
 python run.py
 ```
 
+## Frontend conventions
+
+Flask-Talisman sets a Content-Security-Policy whose `script-src` is `'self' https://cdn.tailwindcss.com` — it does **not** include `'unsafe-inline'`, and no nonce is configured. **All page JavaScript must therefore live in external files under `static/` and be loaded via `<script src="/static/...">`.** Inline `<script>` blocks are silently blocked by the browser (no error in the server logs, only a CSP violation in the browser console), so any feature relying on inline JS will appear to do nothing. Each page that needs JS has its own file (e.g. `static/refresh.js`, `static/logs.js`, `static/detail.js`), and the service-worker registration lives in `static/register-sw.js`.
+
 ## Testing
 
 **Run tests:** `cd megaqueue && source .venv/bin/activate && pytest`
