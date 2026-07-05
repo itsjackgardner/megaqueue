@@ -1,14 +1,15 @@
 {% extends "base.html" %} {% block title_suffix %} — Logs{% endblock %} {% block
+body_class %}h-dvh overflow-hidden flex flex-col{% endblock %} {% block
+main_class %}px-6 pt-6 pb-6 flex-1 min-h-0 flex flex-col{% endblock %} {% block
 content %}
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-bold">Logs</h1>
+<div class="mb-4">
+  <h1 class="text-xl font-bold font-display mb-2">Logs</h1>
   <div id="filters" class="flex flex-wrap gap-1.5"></div>
 </div>
 
 <div
   id="log-container"
-  class="bg-gray-800 rounded-lg border border-gray-700 overflow-y-auto font-mono text-xs leading-relaxed"
-  style="height: calc(100vh - 180px)"
+  class="bg-[#101420] rounded-xl border border-[#252A3C] overflow-y-auto font-mono text-xs leading-relaxed flex-1 min-h-0"
 >
   <div id="log-list"></div>
 </div>

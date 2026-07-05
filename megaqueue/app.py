@@ -27,9 +27,10 @@ Talisman(
     content_security_policy={
         "default-src": "'self'",
         "script-src": ["'self'", "https://cdn.tailwindcss.com"],
-        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
         "connect-src": "'self'",
         "worker-src": "'self'",
+        "font-src": ["https://fonts.gstatic.com"],
     },
 )
 

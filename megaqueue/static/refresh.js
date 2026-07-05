@@ -22,35 +22,32 @@
       downloads.forEach(function (dl) {
         const card = container.querySelector('[data-id="' + dl.id + '"]');
         if (!card) {
-          // New download appeared — full reload is simplest
           location.reload();
           return;
         }
 
-        // Update status badge
-        const badge = card.querySelector(".rounded-full");
-        if (badge) badge.textContent = dl.status;
+        // Check for status change by reading the badge text
+        const badge = card.querySelector("[data-status]");
+        const currentStatus = badge ? badge.dataset.status : "";
+        if (currentStatus !== dl.status) {
+          location.reload();
+          return;
+        }
 
         // Update progress bar if downloading
         if ((dl.status === "downloading" || dl.status === "queued") && dl.total_bytes > 0) {
           const pct = ((dl.progress_bytes / dl.total_bytes) * 100).toFixed(1);
-          const bar = card.querySelector(".bg-blue-500");
+          const bar = card.querySelector(".fetch-bar");
           if (bar) bar.style.width = pct + "%";
 
-          const stats = card.querySelectorAll(".text-gray-400.text-xs span");
+          const stats = card.querySelectorAll("[data-progress] span");
           if (stats.length >= 2) {
             stats[0].textContent =
               formatBytes(dl.progress_bytes) + " / " + formatBytes(dl.total_bytes);
             let speedStr = pct + "%";
-            if (dl.speed > 0) speedStr += " \u00b7 " + formatSpeed(dl.speed);
+            if (dl.speed > 0) speedStr += " · " + formatSpeed(dl.speed);
             stats[1].textContent = speedStr;
           }
-        }
-
-        // If status changed (e.g. completed), reload for full re-render
-        const currentStatus = badge ? badge.textContent.trim() : "";
-        if (currentStatus !== dl.status) {
-          location.reload();
         }
       });
     } catch (e) {

@@ -1,0 +1,62 @@
+:root {
+  --midnight: #101420;
+  --slate: #1A1F30;
+  --amber: #D4943C;
+  --amber-hover: #C28535;
+  --amber-light: #E8B86D;
+  --stone: #6E7790;
+  --cloud: #C8CDD8;
+  --dusk: #252A3C;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+@keyframes fetch-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.fetch-bar {
+  background: var(--amber);
+  border-radius: 9999px;
+  transition: width 700ms ease-out;
+}
+
+.fetch-bar--active {
+  background-image: linear-gradient(
+    90deg,
+    var(--amber) 0%,
+    var(--amber-light) 30%,
+    var(--amber) 60%
+  );
+  background-size: 200% 100%;
+  animation: fetch-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-dot--active {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.content-fade {
+  animation: fade-in 0.2s ease-out;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

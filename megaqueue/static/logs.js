@@ -1,32 +1,36 @@
 const MODULE_COLOURS = {
-  sync: { text: "text-blue-400", bg: "bg-blue-900", border: "border-blue-700" },
-  worker: { text: "text-gray-400", bg: "bg-gray-700", border: "border-gray-600" },
-  metadata: { text: "text-purple-400", bg: "bg-purple-900", border: "border-purple-700" },
-  organiser: { text: "text-green-400", bg: "bg-green-900", border: "border-green-700" },
-  lifecycle: { text: "text-orange-400", bg: "bg-orange-900", border: "border-orange-700" },
-  notifications: { text: "text-teal-400", bg: "bg-teal-900", border: "border-teal-700" },
-  app: { text: "text-gray-300", bg: "bg-gray-700", border: "border-gray-600" },
-  migrations: { text: "text-yellow-400", bg: "bg-yellow-900", border: "border-yellow-700" },
+  sync: { text: "text-[#5BA4E6]", bg: "bg-[#1E3A5F]", border: "border-[#2A4A6F]" },
+  worker: { text: "text-[#6E7790]", bg: "bg-[#252A3C]", border: "border-[#353A4C]" },
+  metadata: { text: "text-[#9B7ED8]", bg: "bg-[#2D2444]", border: "border-[#3D3454]" },
+  organiser: { text: "text-[#5DB87A]", bg: "bg-[#1A3328]", border: "border-[#2A4338]" },
+  lifecycle: { text: "text-[#D4943C]", bg: "bg-[#3D2E1A]", border: "border-[#4D3E2A]" },
+  notifications: { text: "text-[#5BB8B0]", bg: "bg-[#1A3330]", border: "border-[#2A4340]" },
+  app: { text: "text-[#C8CDD8]", bg: "bg-[#252A3C]", border: "border-[#353A4C]" },
+  migrations: { text: "text-[#C9B458]", bg: "bg-[#3A3520]", border: "border-[#4A4530]" },
 };
 
 const LEVEL_COLOURS = {
-  ERROR: "text-red-400",
-  WARNING: "text-yellow-400",
+  ERROR: "text-[#D45D5D]",
+  WARNING: "text-[#C9B458]",
   INFO: "",
 };
 
-const DEFAULT_COLOUR = { text: "text-gray-400", bg: "bg-gray-700", border: "border-gray-600" };
+const DEFAULT_COLOUR = { text: "text-[#6E7790]", bg: "bg-[#252A3C]", border: "border-[#353A4C]" };
 
 const container = document.getElementById("log-container");
 const logList = document.getElementById("log-list");
 const filtersEl = document.getElementById("filters");
 
 let autoScroll = true;
-let hiddenModules = new Set();
+let activeModules = new Set();
 let knownModules = new Set();
 
 function moduleColour(mod) {
   return MODULE_COLOURS[mod] || DEFAULT_COLOUR;
+}
+
+function isVisible(mod) {
+  return activeModules.size === 0 || activeModules.has(mod);
 }
 
 function formatTime(iso) {
@@ -36,18 +40,17 @@ function formatTime(iso) {
 
 function createLogRow(entry) {
   const row = document.createElement("div");
-  row.className = "flex gap-3 px-3 py-0.5 hover:bg-gray-700/50";
+  row.className = "flex gap-3 px-3 py-0.5 hover:bg-[#252A3C]/50 min-w-0";
   row.dataset.module = entry.module;
-  if (hiddenModules.has(entry.module)) row.style.display = "none";
+  if (!isVisible(entry.module)) row.style.display = "none";
 
   const col = moduleColour(entry.module);
-  const lvl = LEVEL_COLOURS[entry.level] || "";
-  const msgClass = entry.level === "ERROR" ? "text-red-300" : entry.level === "WARNING" ? "text-yellow-200" : "text-gray-200";
+  const msgClass = entry.level === "ERROR" ? "text-[#D45D5D]" : entry.level === "WARNING" ? "text-[#C9B458]" : "text-[#C8CDD8]";
 
   row.innerHTML =
-    `<span class="text-gray-500 shrink-0">${formatTime(entry.timestamp)}</span>` +
+    `<span class="text-[#6E7790] shrink-0">${formatTime(entry.timestamp)}</span>` +
     `<span class="${col.text} shrink-0 w-24 text-right">${entry.module}</span>` +
-    `<span class="${msgClass}">${escapeHtml(entry.message)}</span>`;
+    `<span class="${msgClass} break-all min-w-0">${escapeHtml(entry.message)}</span>`;
 
   return row;
 }
@@ -75,9 +78,9 @@ function renderFilters() {
   filtersEl.innerHTML = "";
   for (const mod of [...knownModules].sort()) {
     const col = moduleColour(mod);
-    const active = !hiddenModules.has(mod);
+    const active = activeModules.has(mod);
     const chip = document.createElement("button");
-    chip.className = `px-2 py-0.5 rounded text-xs border ${active ? col.bg + " " + col.border + " " + col.text : "bg-gray-800 border-gray-600 text-gray-500"}`;
+    chip.className = `px-2 py-0.5 rounded text-xs border ${active ? col.bg + " " + col.border + " " + col.text : "bg-[#1A1F30] border-[#252A3C] text-[#6E7790]"}`;
     chip.textContent = mod;
     chip.onclick = () => toggleModule(mod);
     filtersEl.appendChild(chip);
@@ -85,16 +88,18 @@ function renderFilters() {
 }
 
 function toggleModule(mod) {
-  if (hiddenModules.has(mod)) {
-    hiddenModules.delete(mod);
+  if (activeModules.has(mod)) {
+    activeModules.delete(mod);
   } else {
-    hiddenModules.add(mod);
+    activeModules.add(mod);
   }
+  applyFilters();
   renderFilters();
+}
+
+function applyFilters() {
   for (const row of logList.children) {
-    if (row.dataset.module === mod) {
-      row.style.display = hiddenModules.has(mod) ? "none" : "";
-    }
+    row.style.display = isVisible(row.dataset.module) ? "" : "none";
   }
 }
 
@@ -106,7 +111,12 @@ container.addEventListener("scroll", () => {
 fetch("/api/logs")
   .then((r) => r.json())
   .then((entries) => {
+    autoScroll = false;
     for (const e of entries) appendEntry(e);
+    autoScroll = true;
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
   });
 
 const evtSource = new EventSource("/api/logs/stream");

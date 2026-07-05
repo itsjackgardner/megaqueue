@@ -1,7 +1,7 @@
 {% extends "base.html" %} {% block title_suffix %} — Add Download{% endblock %}
 {% block content %}
-<h1 class="text-xl font-bold mb-2">Add download</h1>
-<p class="text-sm text-gray-400 mb-6">
+<h1 class="text-xl font-bold font-display mb-2">Add download</h1>
+<p class="text-sm text-[#6E7790] mb-6">
   Paste one or more mega.nz links — one per line. Title, year, and media type
   are detected from the filenames; you only need to review if detection is
   ambiguous.
@@ -10,7 +10,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
   <div>
-    <label class="block text-sm text-gray-400 mb-1"
+    <label class="block text-sm text-[#6E7790] mb-1"
       >mega.nz links (one per line)</label
     >
     <textarea
@@ -18,15 +18,15 @@
       rows="6"
       required
       placeholder="https://mega.nz/file/..."
-      class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-sm"
+      class="w-full bg-[#101420] border border-[#252A3C] rounded-lg px-3 py-2.5 text-[#C8CDD8] placeholder-[#6E7790] focus:outline-none focus:border-[#D4943C] focus:ring-1 focus:ring-[#D4943C]/30 font-mono text-sm"
     ></textarea>
   </div>
 
   <button
     type="submit"
-    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded"
+    class="w-full bg-[#D4943C] hover:bg-[#C28535] text-[#101420] font-semibold font-display py-2.5 rounded-lg"
   >
-    Queue download
+    Fetch
   </button>
 </form>
 {% endblock %}

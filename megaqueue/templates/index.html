@@ -1,58 +1,44 @@
 {% extends "base.html" %} {% block content %}
 <div id="downloads" class="space-y-3">
   {% if not downloads %}
-  <div class="text-center text-gray-500 py-12">
-    <p class="text-lg mb-2">No downloads yet</p>
-    <a href="/download/add" class="text-indigo-400 hover:text-indigo-300"
-      >Add download</a
+  <div class="text-center py-16">
+    <p class="text-lg font-display text-[#C8CDD8] mb-2">Nothing fetching yet.</p>
+    <p class="text-sm text-[#6E7790] mb-6">Paste a mega link to start.</p>
+    <a href="/download/add"
+      class="inline-block bg-[#D4943C] hover:bg-[#C28535] text-[#101420] font-semibold font-display px-6 py-2.5 rounded-lg text-sm"
+      >+ Add download</a
     >
   </div>
   {% endif %} {% for dl in downloads %}
   <div
-    class="bg-gray-800 rounded-lg p-4 border border-gray-700"
+    class="bg-[#1A1F30] rounded-xl p-4 border border-[#252A3C] {% if dl.status == 'downloading' %}border-l-[3px] border-l-[#D4943C]{% elif dl.status == 'needs_review' %}border-l-[3px] border-l-[#D4943C]{% elif dl.status == 'failed' %}border-l-[3px] border-l-[#D45D5D]{% endif %} active:scale-[0.98] transition-transform duration-100"
     data-id="{{ dl.id }}"
   >
-    <div class="flex items-start justify-between gap-2">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <a
-            href="/download/{{ dl.id }}"
-            class="font-medium {% if dl.title %}text-white{% else %}text-gray-500 italic{% endif %} hover:text-indigo-400 truncate"
-          >
-            {% if dl.title %}{{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}{% else %}Resolving…{% endif %}
-          </a>
-          {% if dl.status in ('queued', 'downloading', 'needs_review') %}
-          <a href="/download/{{ dl.id }}" title="Edit details" class="text-gray-500 hover:text-indigo-400 flex-shrink-0">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-          </a>
-          {% endif %}
-        </div>
-        <div class="flex items-center gap-2 mt-1">
-          <span
-            class="text-xs px-2 py-0.5 rounded-full {% if dl.status == 'downloading' %}bg-blue-900 text-blue-300 {% elif dl.status == 'queued' %}bg-yellow-900 text-yellow-300 {% elif dl.status == 'needs_review' %}bg-orange-900 text-orange-300 {% elif dl.status == 'processing' %}bg-purple-900 text-purple-300 {% elif dl.status == 'complete' %}bg-green-900 text-green-300 {% elif dl.status == 'failed' %}bg-red-900 text-red-300 {% elif dl.status == 'cancelled' %}bg-gray-700 text-gray-400 {% endif %}"
-            >{% if dl.status == 'needs_review' %}review{% else %}{{ dl.status }}{% endif %}</span
-          >
-          {% if dl.media_type %}<span class="text-xs text-gray-500">{{ dl.media_type }}</span>{% endif %}
-          {% set display_files = dl.leaf_files %}
-          {% if display_files | length > 1 %}
-          {% set finished_count = display_files | selectattr('status', 'equalto', 'finished') | list | length %}
-          <span class="text-xs text-gray-500">{{ finished_count }}/{{ display_files | length }} files</span>
-          {% endif %}
-        </div>
-      </div>
+    <div class="flex items-center gap-2">
+      <a
+        href="/download/{{ dl.id }}"
+        class="font-display font-bold text-base {% if dl.title %}text-[#C8CDD8]{% else %}text-[#6E7790] italic{% endif %} hover:text-[#D4943C] truncate flex-1 min-w-0"
+      >
+        {% if dl.title %}{{ dl.title }}{% if dl.year %} ({{ dl.year }}){% endif %}{% else %}Resolving…{% endif %}
+      </a>
+      {% if dl.status in ('queued', 'downloading', 'needs_review') %}
+      <a href="/download/{{ dl.id }}" title="Edit details" class="text-[#6E7790] hover:text-[#D4943C] flex-shrink-0">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+      </a>
+      {% endif %}
     </div>
 
     {% if dl.status in ('downloading', 'queued') %}
-    <div class="mt-3">
+    <div class="mt-2.5">
       {% if dl.total_bytes > 0 %} {% set pct = (dl.progress_bytes /
       dl.total_bytes * 100) | round(1) %}
-      <div class="w-full bg-gray-700 rounded-full h-2">
+      <div class="w-full bg-[#252A3C] rounded-full h-3">
         <div
-          class="bg-blue-500 h-2 rounded-full transition-all"
+          class="fetch-bar {% if dl.status == 'downloading' %}fetch-bar--active{% endif %} h-3 rounded-full"
           style="width: {{ pct }}%"
         ></div>
       </div>
-      <div class="flex justify-between text-xs text-gray-400 mt-1">
+      <div class="flex justify-between text-xs text-[#6E7790] mt-1.5 tabular-nums" data-progress>
         <span
           >{{ (dl.progress_bytes / 1048576) | round(1) }} MB / {{
           (dl.total_bytes / 1048576) | round(1) }} MB</span
@@ -63,55 +49,85 @@
         >
       </div>
       {% else %}
-      <div class="text-xs text-gray-400">Starting download...</div>
+      <div class="text-xs text-[#6E7790]">Starting download...</div>
       {% endif %}
     </div>
-    {% endif %} {% if dl.error_message %}
-    <div class="mt-2 text-xs text-red-400">{{ dl.error_message }}</div>
     {% endif %}
 
-    <div class="mt-3 flex gap-2">
-      {% if dl.status in ('failed', 'cancelled') %}
-      <form method="POST" action="/download/{{ dl.id }}/retry" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button
-          class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded"
-        >
-          Retry
-        </button>
-      </form>
-      {% endif %} {% if dl.status in ('queued', 'downloading') %}
-      <form method="POST" action="/download/{{ dl.id }}/cancel" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button
-          class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded"
-        >
-          Cancel
-        </button>
-      </form>
-      {% endif %} {% if dl.error_message and '509' in dl.error_message %}
-      <form
-        method="POST"
-        action="/download/{{ dl.id }}/clear509"
-        class="inline"
-      >
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button
-          class="text-xs bg-yellow-800 hover:bg-yellow-700 text-yellow-300 px-2 py-1 rounded"
-        >
-          Clear 509
-        </button>
-      </form>
-      {% endif %} {% if dl.status not in ('downloading',) %}
-      <form method="POST" action="/download/{{ dl.id }}/delete" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button
-          class="text-xs bg-gray-700 hover:bg-red-800 text-gray-400 hover:text-red-300 px-2 py-1 rounded"
-        >
-          Delete
-        </button>
-      </form>
+    {% if dl.error_message %}
+    <div class="mt-2 text-xs text-[#D45D5D]">{{ dl.error_message }}</div>
+    {% endif %}
+
+    <div class="flex items-center gap-2 mt-2.5">
+      {% if dl.status == 'downloading' %}
+      <span data-status="downloading" class="text-xs px-2 py-0.5 rounded-full bg-[#1E3A5F] text-[#5BA4E6] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#5BA4E6] status-dot--active"></span>
+        downloading
+      </span>
+      {% elif dl.status == 'queued' %}
+      <span data-status="queued" class="text-xs px-2 py-0.5 rounded-full bg-[#3A3520] text-[#C9B458] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#C9B458]"></span>
+        queued
+      </span>
+      {% elif dl.status == 'needs_review' %}
+      <span data-status="needs_review" class="text-xs px-2 py-0.5 rounded-full bg-[#3D2E1A] text-[#D4943C] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#D4943C]"></span>
+        review
+      </span>
+      {% elif dl.status == 'processing' %}
+      <span data-status="processing" class="text-xs px-2 py-0.5 rounded-full bg-[#2D2444] text-[#9B7ED8] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#9B7ED8]"></span>
+        processing
+      </span>
+      {% elif dl.status == 'complete' %}
+      <span data-status="complete" class="text-xs px-2 py-0.5 rounded-full bg-[#1A3328] text-[#5DB87A] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#5DB87A]"></span>
+        complete
+      </span>
+      {% elif dl.status == 'failed' %}
+      <span data-status="failed" class="text-xs px-2 py-0.5 rounded-full bg-[#3D1F1F] text-[#D45D5D] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#D45D5D]"></span>
+        failed
+      </span>
+      {% elif dl.status == 'cancelled' %}
+      <span data-status="cancelled" class="text-xs px-2 py-0.5 rounded-full bg-[#252A3C] text-[#6E7790] uppercase tracking-wide font-medium flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#6E7790]"></span>
+        cancelled
+      </span>
       {% endif %}
+      {% if dl.media_type %}<span class="text-xs text-[#6E7790]">{{ dl.media_type }}</span>{% endif %}
+      {% set display_files = dl.leaf_files %}
+      {% if display_files | length > 1 %}
+      {% set finished_count = display_files | selectattr('status', 'equalto', 'finished') | list | length %}
+      <span class="text-xs text-[#6E7790]">{{ finished_count }}/{{ display_files | length }} files</span>
+      {% endif %}
+
+      <div class="flex gap-1 ml-auto">
+        {% if dl.status in ('failed', 'cancelled') %}
+        <form method="POST" action="/download/{{ dl.id }}/retry" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button class="text-xs text-[#6E7790] hover:text-[#C8CDD8] px-1.5 py-0.5">Retry</button>
+        </form>
+        {% endif %}
+        {% if dl.status in ('queued', 'downloading') %}
+        <form method="POST" action="/download/{{ dl.id }}/cancel" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button class="text-xs text-[#6E7790] hover:text-[#C8CDD8] px-1.5 py-0.5">Cancel</button>
+        </form>
+        {% endif %}
+        {% if dl.error_message and '509' in dl.error_message %}
+        <form method="POST" action="/download/{{ dl.id }}/clear509" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button class="text-xs text-[#C9B458] hover:text-[#E8B86D] px-1.5 py-0.5">Clear 509</button>
+        </form>
+        {% endif %}
+        {% if dl.status not in ('downloading',) %}
+        <form method="POST" action="/download/{{ dl.id }}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button class="text-xs text-[#6E7790] hover:text-[#D45D5D] px-1.5 py-0.5">Delete</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   </div>
   {% endfor %}

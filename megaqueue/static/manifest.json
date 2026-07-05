@@ -3,8 +3,8 @@
   "short_name": "movie dog",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#3D4CE4",
-  "background_color": "#3D4CE4",
+  "theme_color": "#101420",
+  "background_color": "#101420",
   "icons": [
     {
       "src": "/static/icons/icon.svg",

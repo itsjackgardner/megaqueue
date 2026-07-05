@@ -10,4 +10,4 @@ if __name__ == "__main__":
 
     application = create_app()
     logging.getLogger().info("Starting MegaQueue on %s:%d", config.HOST, config.PORT)
-    serve(application, host=config.HOST, port=config.PORT)
+    serve(application, host=config.HOST, port=config.PORT, threads=8)
