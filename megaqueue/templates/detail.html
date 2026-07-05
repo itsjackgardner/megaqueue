@@ -6,7 +6,7 @@ endblock %} {% block content %}
   >
 </div>
 
-<div class="bg-[#1A1F30] rounded-xl p-6 border border-[#252A3C] {% if download.status == 'downloading' %}border-l-[3px] border-l-[#D4943C]{% elif download.status == 'needs_review' %}border-l-[3px] border-l-[#D4943C]{% elif download.status == 'failed' %}border-l-[3px] border-l-[#D45D5D]{% endif %}">
+<div id="detail-card" data-id="{{ download.id }}" data-status="{{ download.status }}" class="bg-[#1A1F30] rounded-xl p-6 border border-[#252A3C] {% if download.status == 'downloading' %}border-l-[3px] border-l-[#D4943C]{% elif download.status == 'needs_review' %}border-l-[3px] border-l-[#D4943C]{% elif download.status == 'failed' %}border-l-[3px] border-l-[#D45D5D]{% endif %}">
   <h1 class="text-xl font-bold font-display mb-1 {% if not download.title %}text-[#6E7790] italic{% endif %}">
     {% if download.title %}{{ download.title }}{% if download.year %} ({{ download.year }}){% endif %}{% else %}Resolving…{% endif %}
   </h1>
@@ -54,11 +54,11 @@ endblock %} {% block content %}
 
   {% if download.status in ('downloading', 'queued') and download.total_bytes > 0 %}
   {% set pct = (download.progress_bytes / download.total_bytes * 100) | round(1) %}
-  <div class="mb-4">
+  <div id="overall-progress" class="mb-4">
     <div class="w-full bg-[#252A3C] rounded-full h-3">
       <div class="fetch-bar {% if download.status == 'downloading' %}fetch-bar--active{% endif %} h-3 rounded-full" style="width: {{ pct }}%"></div>
     </div>
-    <div class="flex justify-between text-xs text-[#6E7790] mt-1.5 tabular-nums">
+    <div data-progress class="flex justify-between text-xs text-[#6E7790] mt-1.5 tabular-nums">
       <span
         >{{ (download.progress_bytes / 1048576) | round(1) }} MB / {{
         (download.total_bytes / 1048576) | round(1) }} MB</span
@@ -156,7 +156,7 @@ endblock %} {% block content %}
   <div class="space-y-2 mb-4">
     <span class="text-sm text-[#6E7790]">Files:</span>
     {% for f in download.leaf_files %}
-    <div class="bg-[#101420] rounded-lg p-3 border border-[#252A3C]">
+    <div data-file-id="{{ f.id }}" class="bg-[#101420] rounded-lg p-3 border border-[#252A3C]">
       <div class="flex items-center justify-between gap-2 mb-1">
         <span class="text-sm text-[#C8CDD8] truncate flex-1">{{ f.name or f.url }}</span>
         {% if f.status == 'downloading' %}
@@ -177,7 +177,7 @@ endblock %} {% block content %}
       <div class="w-full bg-[#252A3C] rounded-full h-2 mt-2">
         <div class="fetch-bar h-2 rounded-full" style="width: {{ fpct }}%"></div>
       </div>
-      <div class="flex justify-between text-xs text-[#6E7790] mt-1 tabular-nums">
+      <div data-file-progress class="flex justify-between text-xs text-[#6E7790] mt-1 tabular-nums">
         <span>{{ (f.progress_bytes / 1048576) | round(1) }} MB / {{ (f.total_bytes / 1048576) | round(1) }} MB</span>
         <span>{{ fpct }}%{% if f.speed > 0 %} &middot; {{ (f.speed / 1048576) | round(1) }} MB/s{% endif %}</span>
       </div>
