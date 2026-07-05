@@ -1,6 +1,35 @@
 """Pure helpers for mega.nz URLs. No DB, no IO, no side effects."""
 
+import base64
 import re
+
+_MEGA_URL_RE = re.compile(r"https?://mega\.nz/")
+
+
+def maybe_decode_base64(text):
+    """Try to base64-decode text into a mega.nz URL (up to two rounds for double-encoding)."""
+    text = text.strip()
+    if _MEGA_URL_RE.match(text):
+        return text
+
+    decoded = text
+    for _ in range(2):
+        decoded = _try_b64_decode(decoded)
+        if decoded is None:
+            return text
+        if _MEGA_URL_RE.match(decoded):
+            return decoded
+    return text
+
+
+def _try_b64_decode(s):
+    padded = s + "=" * (-len(s) % 4)
+    for decode_fn in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            return decode_fn(padded).decode("utf-8")
+        except Exception:
+            continue
+    return None
 
 
 def normalize(url):

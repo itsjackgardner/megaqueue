@@ -1,4 +1,6 @@
-from megaqueue.mega_urls import normalize, extract_folder_id, is_folder_url
+import base64
+
+from megaqueue.mega_urls import normalize, extract_folder_id, is_folder_url, maybe_decode_base64
 
 
 # --- URL Normalization ---
@@ -73,3 +75,60 @@ def test_is_folder_url_new_file_format():
 
 def test_is_folder_url_old_file_format():
     assert is_folder_url("https://mega.nz/#!abc!xyz") is False
+
+
+# --- Base64 URL Decoding ---
+
+def _b64(s):
+    return base64.b64encode(s.encode()).decode()
+
+
+def _b64url(s):
+    return base64.urlsafe_b64encode(s.encode()).decode()
+
+
+def test_decode_raw_url_passthrough():
+    url = "https://mega.nz/file/abc#key"
+    assert maybe_decode_base64(url) == url
+
+
+def test_decode_standard_base64():
+    url = "https://mega.nz/file/abc#key"
+    assert maybe_decode_base64(_b64(url)) == url
+
+
+def test_decode_urlsafe_base64():
+    url = "https://mega.nz/file/abc#key"
+    assert maybe_decode_base64(_b64url(url)) == url
+
+
+def test_decode_double_encoded():
+    url = "https://mega.nz/folder/abc#key"
+    encoded = _b64(_b64(url))
+    assert maybe_decode_base64(encoded) == url
+
+
+def test_decode_missing_padding():
+    url = "https://mega.nz/file/abc#key"
+    encoded = _b64(url).rstrip("=")
+    assert maybe_decode_base64(encoded) == url
+
+
+def test_decode_non_decodable_returns_original():
+    text = "not-a-url-or-base64!!!"
+    assert maybe_decode_base64(text) == text
+
+
+def test_decode_non_mega_url_returns_original():
+    encoded = _b64("https://example.com")
+    assert maybe_decode_base64(encoded) == encoded
+
+
+def test_decode_old_format_url():
+    url = "https://mega.nz/#!abc!key"
+    assert maybe_decode_base64(_b64(url)) == url
+
+
+def test_decode_folder_url():
+    url = "https://mega.nz/folder/abc#key"
+    assert maybe_decode_base64(_b64(url)) == url

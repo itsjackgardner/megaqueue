@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import patch, MagicMock
 
 from megaqueue.models import Download, DownloadFile
@@ -173,6 +174,40 @@ def test_old_resolve_url_not_found(mock_worker, client, db_session):
         "title": "T", "media_type": "movie",
     }, follow_redirects=False)
     assert resp.status_code == 404
+
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_create_download_base64_encoded(mock_mb, mock_worker, client, db_session):
+    """Base64-encoded mega.nz URLs are decoded before creating DownloadFile records."""
+    mock_mb.start = MagicMock()
+    url = "https://mega.nz/file/abc#key1"
+    encoded = base64.b64encode(url.encode()).decode()
+
+    resp = client.post("/download", data={"links": encoded}, follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.query(Download).first()
+    assert dl is not None
+    assert len(dl.files) == 1
+    assert dl.files[0].url == url
+
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_create_download_double_encoded(mock_mb, mock_worker, client, db_session):
+    """Double-base64-encoded mega.nz URLs are decoded through both layers."""
+    mock_mb.start = MagicMock()
+    url = "https://mega.nz/folder/abc#key1"
+    double_encoded = base64.b64encode(base64.b64encode(url.encode())).decode()
+
+    resp = client.post("/download", data={"links": double_encoded}, follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.query(Download).first()
+    assert dl is not None
+    assert len(dl.files) == 1
+    assert dl.files[0].url == url
 
 
 @patch("megaqueue.app.start_worker")

@@ -9,6 +9,7 @@ from flask_talisman import Talisman
 from megaqueue import config
 from megaqueue.enums import DownloadStatus, FileStatus, MediaType, MetadataConfidence, MetadataSource
 from megaqueue.models import db_session, init_db, Download, DownloadFile
+from megaqueue.mega_urls import maybe_decode_base64
 from megaqueue.megabasterd_client import MegabasterdClient
 from megaqueue.worker import start_worker
 
@@ -63,7 +64,7 @@ def add_download_form():
 def add_download():
     """Accept one or more mega.nz links. Metadata is resolved later by guessit."""
     links_raw = request.form.get("links", "").strip()
-    links = [l.strip() for l in links_raw.splitlines() if l.strip()]
+    links = [maybe_decode_base64(l.strip()) for l in links_raw.splitlines() if l.strip()]
 
     if not links:
         return redirect(url_for("index"))
