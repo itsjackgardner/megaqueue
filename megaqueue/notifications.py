@@ -10,11 +10,14 @@ log = logging.getLogger(__name__)
 def _send(title, message, priority="default"):
     """Send a push notification via ntfy.sh."""
     url = f"{config.NTFY_SERVER}/{config.NTFY_TOPIC}"
+    headers = {"Title": title, "Priority": priority}
+    if config.NTFY_ICON_URL:
+        headers["Icon"] = config.NTFY_ICON_URL
     try:
         requests.post(
             url,
             data=message.encode("utf-8"),
-            headers={"Title": title, "Priority": priority},
+            headers=headers,
             timeout=10,
         )
         log.info("Push notification sent: %s — %s", title, message)

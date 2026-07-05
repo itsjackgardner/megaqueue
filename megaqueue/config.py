@@ -18,6 +18,7 @@ PLEX_TV_DIR = _env("PLEX_TV_DIR")
 # Notifications
 NTFY_TOPIC = _env("NTFY_TOPIC")
 NTFY_SERVER = _env("NTFY_SERVER", "https://ntfy.sh")
+NTFY_ICON_URL = _env("NTFY_ICON_URL")
 
 # Authentication (CSRF token signing)
 SECRET_KEY = _env("SECRET_KEY")

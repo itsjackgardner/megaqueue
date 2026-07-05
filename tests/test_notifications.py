@@ -1,6 +1,7 @@
 import responses
 from unittest.mock import MagicMock
 
+from megaqueue import config
 from megaqueue.notifications import notify_completion, notify_failure, notify_needs_review
 
 
@@ -15,6 +16,20 @@ def test_notify_completion_sends_message():
     req = responses.calls[0].request
     assert b"Inception (2010)" in req.body
     assert req.headers["Title"] == "Download Complete"
+    assert "Icon" not in req.headers
+
+
+@responses.activate
+def test_notify_completion_includes_icon_header_when_configured(monkeypatch):
+    monkeypatch.setattr(config, "NTFY_ICON_URL", "https://example.com/icon.png")
+    responses.post("https://ntfy.sh/test-topic")
+
+    dl = MagicMock(title="Inception", year=2010, error_message=None)
+    notify_completion(dl)
+
+    assert len(responses.calls) == 1
+    req = responses.calls[0].request
+    assert req.headers["Icon"] == "https://example.com/icon.png"
 
 
 @responses.activate
