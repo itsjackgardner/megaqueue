@@ -26,8 +26,8 @@ ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z", ".001"}
 
 # Windows can briefly refuse a move (WinError 32) while megabasterd releases its
 # handle, or while Plex/antivirus scans the new file. Retry before giving up.
-MOVE_RETRIES = 5
-MOVE_RETRY_DELAY = 2  # seconds between attempts
+MOVE_RETRIES = 6
+MOVE_RETRY_BASE_DELAY = 2  # seconds; doubles each attempt (2, 4, 8, 16, 32)
 
 
 def _is_archive(path):
@@ -124,12 +124,13 @@ def _move(src, dest):
             return str(dest)
         except OSError as e:
             last_err = e
+            delay = MOVE_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             log.warning(
-                "Move attempt %d/%d failed for '%s': %s",
-                attempt, MOVE_RETRIES, src, e,
+                "Move attempt %d/%d failed for '%s': %s — retrying in %ds",
+                attempt, MOVE_RETRIES, src, e, delay,
             )
             if attempt < MOVE_RETRIES:
-                time.sleep(MOVE_RETRY_DELAY)
+                time.sleep(delay)
     raise last_err
 
 

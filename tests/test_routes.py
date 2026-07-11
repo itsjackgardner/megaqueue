@@ -278,3 +278,44 @@ def test_delete_download(mock_worker, client, db_session, sample_download):
     resp = client.post(f"/download/{dl_id}/delete", follow_redirects=False)
     assert resp.status_code == 302
     assert db_session.get(Download, dl_id) is None
+
+
+@patch("megaqueue.app.start_worker")
+def test_retry_failed_postprocess_sets_processing(mock_worker, client, db_session):
+    """Retry a download where files finished but post-processing failed — should
+    set status to PROCESSING (re-organise) instead of QUEUED (re-download)."""
+    dl = Download(title="Practical Magic", year=1998, media_type="movie",
+                  status="failed", error_message="File organization failed: WinError 32")
+    dl.files.append(DownloadFile(url="u", name="movie.mkv", status="finished",
+                                 progress_bytes=1000, total_bytes=1000))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/retry", follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.status == "processing"
+    assert dl.error_message is None
+    assert dl.files[0].status == "finished"
+    assert dl.files[0].progress_bytes == 1000
+
+
+@patch("megaqueue.app.start_worker")
+def test_retry_failed_download_resets_to_queued(mock_worker, client, db_session):
+    """Retry a download where the download itself failed — should reset to QUEUED."""
+    dl = Download(title="Test", media_type="movie", status="failed")
+    dl.files.append(DownloadFile(url="u", status="failed",
+                                 error_message="download error"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/retry", follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.status == "queued"
+    assert dl.files[0].status == "queued"
+    assert dl.files[0].progress_bytes == 0

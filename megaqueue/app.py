@@ -134,15 +134,23 @@ def download_detail(download_id):
 def retry_download(download_id):
     dl = db_session.get(Download, download_id)
     if dl and dl.status in (DownloadStatus.FAILED, DownloadStatus.CANCELLED):
-        dl.status = DownloadStatus.QUEUED
-        dl.downloading_since = None
-        dl.error_message = None
-        for f in dl.files:
-            f.status = FileStatus.QUEUED
-            f.progress_bytes = 0
-            f.total_bytes = 0
-            f.speed = 0
-            f.error_message = None
+        all_files_finished = (
+            dl.leaf_files
+            and all(f.status == FileStatus.FINISHED for f in dl.leaf_files)
+        )
+        if all_files_finished:
+            dl.status = DownloadStatus.PROCESSING
+            dl.error_message = None
+        else:
+            dl.status = DownloadStatus.QUEUED
+            dl.downloading_since = None
+            dl.error_message = None
+            for f in dl.files:
+                f.status = FileStatus.QUEUED
+                f.progress_bytes = 0
+                f.total_bytes = 0
+                f.speed = 0
+                f.error_message = None
         db_session.commit()
     return redirect(url_for("index"))
 
