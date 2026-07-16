@@ -23,6 +23,10 @@ from megaqueue.metadata import parse_filename
 log = logging.getLogger(__name__)
 
 ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z", ".001"}
+MEDIA_EXTENSIONS = {
+    ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v",
+    ".srt", ".sub", ".idx", ".ass", ".ssa",
+}
 
 # Windows can briefly refuse a move (WinError 32) while megabasterd releases its
 # handle, or while Plex/antivirus scans the new file. Retry before giving up.
@@ -32,6 +36,22 @@ MOVE_RETRY_BASE_DELAY = 2  # seconds; doubles each attempt (2, 4, 8, 16, 32)
 
 def _is_archive(path):
     return path.suffix.lower() in ARCHIVE_EXTENSIONS
+
+
+def _has_media_files(directory):
+    """Return True if the directory contains at least one file with a media extension."""
+    return any(p.suffix.lower() in MEDIA_EXTENSIONS for p in directory.rglob("*") if p.is_file())
+
+
+def _check_unrar():
+    """Verify the unrar binary is available. Raises RuntimeError if not."""
+    import rarfile
+    tool = rarfile.UNRAR_TOOL
+    if shutil.which(tool) is None:
+        raise RuntimeError(
+            f"Cannot extract .rar archives: '{tool}' not found on PATH. "
+            f"Install unrar and ensure it is on PATH."
+        )
 
 
 def _sanitize(name):
@@ -50,11 +70,20 @@ def _extract_archive(archive_path, dest_dir):
         with py7zr.SevenZipFile(archive_path, mode="r") as sz:
             sz.extractall(path=dest_dir)
     elif ext in (".rar", ".001"):
+        _check_unrar()
         import rarfile
         with rarfile.RarFile(archive_path) as rf:
             rf.extractall(dest_dir)
     else:
         raise RuntimeError(f"Unsupported archive type: {archive_path}")
+
+    extracted = list(Path(dest_dir).rglob("*"))
+    if not any(p.is_file() for p in extracted):
+        import rarfile as _rf
+        raise RuntimeError(
+            f"Archive {archive_path.name} produced no files. "
+            f"Temp dir: {dest_dir}, unrar tool: {getattr(_rf, 'UNRAR_TOOL', 'unknown')}"
+        )
 
 
 def _route_movie_main(file_path, download):
@@ -150,7 +179,7 @@ def _organize_one(file_path, download, leaf_file):
     return _move(file_path, dest)
 
 
-def organize_download(download, source_paths):
+def organize_download(download, source_paths, pre_extracted=None):
     """Organise files for a finished download.
 
     Args:
@@ -159,6 +188,9 @@ def organize_download(download, source_paths):
             is_extra flags drive movie routing.
         source_paths: list of Path objects, one per leaf file (same order
             as download.leaf_files).
+        pre_extracted: optional list of bools (same length as source_paths)
+            indicating whether each path is a pre-extracted directory
+            rather than a downloadable file/archive.
 
     Returns the list of final destination path strings aligned by index
     with download.leaf_files. For archive sources, the leaf's file_path
@@ -166,6 +198,9 @@ def organize_download(download, source_paths):
     extracted files are routed individually but not threaded back into
     the DB (Plex picks them up by folder scan).
     """
+    if pre_extracted is None:
+        pre_extracted = [False] * len(source_paths)
+
     leaf_files = download.leaf_files
     final_paths = [None] * len(leaf_files)
 
@@ -174,7 +209,21 @@ def organize_download(download, source_paths):
         for i, src in enumerate(source_paths):
             leaf = leaf_files[i] if i < len(leaf_files) else None
 
-            if _is_archive(src):
+            if pre_extracted[i]:
+                log.info("Using pre-extracted directory '%s'", src)
+                files = sorted(
+                    [p for p in src.rglob("*") if p.is_file() and p.suffix.lower() in MEDIA_EXTENSIONS],
+                    key=lambda p: -p.stat().st_size,
+                )
+                if not files:
+                    raise RuntimeError(f"Pre-extracted directory {src} contains no media files")
+                first = _organize_one(files[0], download, leaf)
+                final_paths[i] = first
+                for extra in files[1:]:
+                    _organize_one(extra, download, None)
+                if not any(src.iterdir()):
+                    src.rmdir()
+            elif _is_archive(src):
                 log.info("Extracting archive '%s'", src.name)
                 _extract_archive(src, temp_dir)
                 extracted = sorted(
@@ -187,7 +236,6 @@ def organize_download(download, source_paths):
                 final_paths[i] = first
                 for extra in extracted[1:]:
                     _organize_one(extra, download, None)
-                # Source archive isn't moved; megabasterd's download dir cleanup is its problem.
             else:
                 final_paths[i] = _organize_one(src, download, leaf)
 

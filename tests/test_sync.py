@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -246,12 +247,14 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
     assert dl.year == 2010
 
 
+@patch("megaqueue.lifecycle.resolve_source_paths")
 @patch("megaqueue.lifecycle.notify_failure")
 @patch("megaqueue.lifecycle.notify_completion")
 @patch("megaqueue.lifecycle.organiser")
-def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, db_session):
+def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, mock_resolve, db_session):
     """A finished download with high metadata confidence runs the organiser."""
     mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
+    mock_resolve.return_value = ([Path("/tmp/test-downloads/movie.mkv")], [False])
 
     # Pre-set high confidence so derive_download_status returns PROCESSING.
     # In real flow, metadata.refresh would compute this from the filename.
@@ -397,12 +400,14 @@ def test_sync_low_confidence_folder_enters_needs_review_before_completion(
     mock_fb.organize_download.assert_not_called()
 
 
+@patch("megaqueue.lifecycle.resolve_source_paths")
 @patch("megaqueue.lifecycle.organiser")
-def test_sync_recovers_stuck_processing_download(mock_fb, db_session):
+def test_sync_recovers_stuck_processing_download(mock_fb, mock_resolve, db_session):
     """A download that was flipped to PROCESSING but never had post_process run
     (e.g. the resolve route set the status but the worker didn't see it) is
     recovered on the next tick by re-invoking post_process."""
     mock_fb.organize_download.return_value = ["/dest/x.mkv"]
+    mock_resolve.return_value = ([Path("/tmp/test-downloads/X.2020.1080p.mkv")], [False])
 
     dl = Download(title="X", year=2020, media_type="movie", status=DownloadStatus.PROCESSING,
                   metadata_confidence=MetadataConfidence.HIGH,

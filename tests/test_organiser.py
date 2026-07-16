@@ -6,6 +6,8 @@ import pytest
 from megaqueue.enums import FileStatus, MediaType
 from megaqueue.models import Download, DownloadFile
 from megaqueue.organiser import (
+    _check_unrar,
+    _has_media_files,
     _is_archive,
     _move,
     _sanitize,
@@ -259,3 +261,148 @@ def test_move_raises_after_exhausting_retries(mock_sleep, tmp_path):
             _move(src, dest)
 
     assert mock_move.call_count == 5  # MOVE_RETRIES
+
+
+# --- _check_unrar ---
+
+def test_check_unrar_raises_when_not_on_path():
+    with patch("megaqueue.organiser.shutil.which", return_value=None):
+        with pytest.raises(RuntimeError, match="not found on PATH"):
+            _check_unrar()
+
+
+def test_check_unrar_passes_when_available():
+    with patch("megaqueue.organiser.shutil.which", return_value="/usr/bin/unrar"):
+        _check_unrar()
+
+
+# --- _has_media_files ---
+
+def test_has_media_files_with_video(tmp_path):
+    (tmp_path / "movie.mkv").touch()
+    assert _has_media_files(tmp_path) is True
+
+
+def test_has_media_files_with_subtitle_only(tmp_path):
+    (tmp_path / "movie.srt").touch()
+    assert _has_media_files(tmp_path) is True
+
+
+def test_has_media_files_with_non_media_only(tmp_path):
+    (tmp_path / "readme.txt").touch()
+    (tmp_path / "info.nfo").touch()
+    assert _has_media_files(tmp_path) is False
+
+
+def test_has_media_files_empty_dir(tmp_path):
+    assert _has_media_files(tmp_path) is False
+
+
+# --- Post-extraction validation ---
+
+@patch("megaqueue.organiser._check_unrar")
+def test_extract_archive_raises_when_no_files_produced(mock_check, tmp_path):
+    """extractall() succeeds but produces nothing → RuntimeError with diagnostics."""
+    archive = tmp_path / "movie.rar"
+    archive.write_text("fake")
+    dest = tmp_path / "out"
+    dest.mkdir()
+
+    mock_rf = MagicMock()
+    mock_rf_cm = MagicMock()
+    mock_rf_cm.extractall = MagicMock()
+    mock_rf.RarFile.return_value.__enter__ = MagicMock(return_value=mock_rf_cm)
+    mock_rf.RarFile.return_value.__exit__ = MagicMock(return_value=False)
+
+    import sys
+    with patch.dict(sys.modules, {"rarfile": mock_rf}):
+        from megaqueue.organiser import _extract_archive
+        with pytest.raises(RuntimeError, match="produced no files"):
+            _extract_archive(archive, dest)
+
+
+# --- Pre-extracted directory support ---
+
+def test_organize_with_pre_extracted_directory(db_session, tmp_path):
+    """A pre-extracted directory routes its media files like an extracted archive."""
+    pre_extracted = tmp_path / "H2OBoy"
+    pre_extracted.mkdir()
+    (pre_extracted / "The Waterboy (1998).mkv").write_text("video content")
+
+    plex = tmp_path / "plex"
+    plex.mkdir()
+
+    dl = Download(title="The Waterboy", year=1998, media_type=MediaType.MOVIE)
+    dl.files.append(DownloadFile(url="u1", name="H2OBoy.rar", is_extra=False))
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_MOVIES_DIR = str(plex)
+        paths = organize_download(dl, [pre_extracted], pre_extracted=[True])
+
+    assert paths[0] == str(plex / "The Waterboy (1998)" / "The Waterboy (1998).mkv")
+    assert (plex / "The Waterboy (1998)" / "The Waterboy (1998).mkv").exists()
+
+
+def test_organize_pre_extracted_removes_empty_dir(db_session, tmp_path):
+    """An emptied pre-extracted directory is cleaned up."""
+    pre_extracted = tmp_path / "movie"
+    pre_extracted.mkdir()
+    (pre_extracted / "film.mkv").write_text("video")
+
+    plex = tmp_path / "plex"
+    plex.mkdir()
+
+    dl = Download(title="Film", year=2020, media_type=MediaType.MOVIE)
+    dl.files.append(DownloadFile(url="u1", name="movie.rar", is_extra=False))
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_MOVIES_DIR = str(plex)
+        organize_download(dl, [pre_extracted], pre_extracted=[True])
+
+    assert not pre_extracted.exists()
+
+
+def test_organize_pre_extracted_preserves_non_empty_dir(db_session, tmp_path):
+    """A pre-extracted dir with leftover non-media files is NOT deleted."""
+    pre_extracted = tmp_path / "movie"
+    pre_extracted.mkdir()
+    (pre_extracted / "film.mkv").write_text("video")
+    (pre_extracted / "readme.txt").write_text("info")
+
+    plex = tmp_path / "plex"
+    plex.mkdir()
+
+    dl = Download(title="Film", year=2020, media_type=MediaType.MOVIE)
+    dl.files.append(DownloadFile(url="u1", name="movie.rar", is_extra=False))
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_MOVIES_DIR = str(plex)
+        organize_download(dl, [pre_extracted], pre_extracted=[True])
+
+    assert pre_extracted.exists()
+    assert (pre_extracted / "readme.txt").exists()
+
+
+def test_organize_pre_extracted_raises_on_no_media(db_session, tmp_path):
+    pre_extracted = tmp_path / "movie"
+    pre_extracted.mkdir()
+    (pre_extracted / "readme.txt").write_text("info")
+
+    plex = tmp_path / "plex"
+    plex.mkdir()
+
+    dl = Download(title="Film", year=2020, media_type=MediaType.MOVIE)
+    dl.files.append(DownloadFile(url="u1", name="movie.rar", is_extra=False))
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_MOVIES_DIR = str(plex)
+        with pytest.raises(RuntimeError, match="no media files"):
+            organize_download(dl, [pre_extracted], pre_extracted=[True])

@@ -44,9 +44,16 @@ def derive_download_status(download):
 
 
 def resolve_source_paths(download):
-    """Resolve source file paths from DownloadFile.name fields for post-processing."""
+    """Resolve source file paths from DownloadFile.name fields for post-processing.
+
+    Returns (source_paths, pre_extracted) where pre_extracted[i] is True
+    if the path is a pre-extracted directory rather than the original file.
+    """
+    from megaqueue.organiser import ARCHIVE_EXTENSIONS, _has_media_files
+
     download_dir = Path(config.MEGABASTERD_DOWNLOAD_DIR)
     source_paths = []
+    pre_extracted = []
 
     for df in download.leaf_files:
         if not df.name:
@@ -54,12 +61,36 @@ def resolve_source_paths(download):
                 f"Could not determine download file path: DownloadFile name not set "
                 f"for id={df.id}"
             )
-        source_paths.append(download_dir / df.name)
+        file_path = download_dir / df.name
+        if file_path.exists():
+            source_paths.append(file_path)
+            pre_extracted.append(False)
+        elif file_path.suffix.lower() in ARCHIVE_EXTENSIONS:
+            stem_dir = download_dir / file_path.stem
+            if stem_dir.is_dir() and _has_media_files(stem_dir):
+                log.info(
+                    "Archive '%s' not found, using pre-extracted directory '%s'",
+                    df.name, stem_dir,
+                )
+                source_paths.append(stem_dir)
+                pre_extracted.append(True)
+            elif stem_dir.is_dir():
+                raise FileNotFoundError(
+                    f"Archive '{df.name}' not found and directory '{stem_dir}' "
+                    f"contains no media files"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"Source file not found: {file_path} "
+                    f"(also checked for pre-extracted directory '{stem_dir}')"
+                )
+        else:
+            raise FileNotFoundError(f"Source file not found: {file_path}")
 
     if not source_paths:
         raise FileNotFoundError("No source file paths resolved")
 
-    return source_paths
+    return source_paths, pre_extracted
 
 
 def _stop_megabasterd_entries(download, client):
@@ -113,8 +144,8 @@ def post_process(download, client):
     _stop_megabasterd_entries(download, client)
 
     try:
-        source_paths = resolve_source_paths(download)
-        final_paths = organiser.organize_download(download, source_paths)
+        source_paths, pre_extracted = resolve_source_paths(download)
+        final_paths = organiser.organize_download(download, source_paths, pre_extracted)
         for df, fp in zip(download.leaf_files, final_paths):
             if fp:
                 df.file_path = fp

@@ -123,12 +123,15 @@ def test_resolve_source_paths_from_leaf_names(db_session, tmp_path):
     db_session.add(dl)
     db_session.commit()
 
+    (tmp_path / "movie.mkv").touch()
+
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
-        paths = resolve_source_paths(dl)
+        paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 1
     assert paths[0] == tmp_path / "movie.mkv"
+    assert pre_extracted == [False]
 
 
 def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
@@ -148,13 +151,17 @@ def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
     db_session.commit()
     db_session.refresh(dl)
 
+    (tmp_path / "ep01.mkv").touch()
+    (tmp_path / "ep02.mkv").touch()
+
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
-        paths = resolve_source_paths(dl)
+        paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 2
     assert tmp_path / "ep01.mkv" in paths
     assert tmp_path / "ep02.mkv" in paths
+    assert pre_extracted == [False, False]
 
 
 def test_resolve_source_paths_raises_when_name_missing(db_session, tmp_path):
@@ -167,4 +174,70 @@ def test_resolve_source_paths_raises_when_name_missing(db_session, tmp_path):
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(ValueError, match="name not set"):
+            resolve_source_paths(dl)
+
+
+# --- Pre-extracted archive fallback ---
+
+
+def test_resolve_source_paths_fallback_to_pre_extracted_dir(db_session, tmp_path):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name="H2OBoy.rar", status=FileStatus.FINISHED)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    extracted_dir = tmp_path / "H2OBoy"
+    extracted_dir.mkdir()
+    (extracted_dir / "The Waterboy (1998).mkv").touch()
+
+    with patch("megaqueue.lifecycle.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        paths, pre_extracted = resolve_source_paths(dl)
+
+    assert len(paths) == 1
+    assert paths[0] == extracted_dir
+    assert pre_extracted == [True]
+
+
+def test_resolve_source_paths_no_fallback_for_non_archive(db_session, tmp_path):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name="movie.mkv", status=FileStatus.FINISHED)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.lifecycle.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        with pytest.raises(FileNotFoundError, match="Source file not found"):
+            resolve_source_paths(dl)
+
+
+def test_resolve_source_paths_fallback_rejects_no_media_dir(db_session, tmp_path):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name="movie.rar", status=FileStatus.FINISHED)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    extracted_dir = tmp_path / "movie"
+    extracted_dir.mkdir()
+    (extracted_dir / "readme.txt").touch()
+
+    with patch("megaqueue.lifecycle.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        with pytest.raises(FileNotFoundError, match="contains no media files"):
+            resolve_source_paths(dl)
+
+
+def test_resolve_source_paths_fallback_no_dir_exists(db_session, tmp_path):
+    dl = Download(title="Movie", media_type="movie")
+    df = DownloadFile(url="https://mega.nz/file/abc#key", name="movie.rar", status=FileStatus.FINISHED)
+    dl.files.append(df)
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.lifecycle.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        with pytest.raises(FileNotFoundError, match="also checked for pre-extracted"):
             resolve_source_paths(dl)
