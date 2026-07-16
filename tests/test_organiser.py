@@ -406,3 +406,55 @@ def test_organize_pre_extracted_raises_on_no_media(db_session, tmp_path):
         mock_config.PLEX_MOVIES_DIR = str(plex)
         with pytest.raises(RuntimeError, match="no media files"):
             organize_download(dl, [pre_extracted], pre_extracted=[True])
+
+
+# --- Destination already exists (skip move) ---
+
+def test_organize_skips_move_when_destination_exists(db_session, tmp_path):
+    """If the destination file already exists on disk, the move is skipped."""
+    src = tmp_path / "Gen.V.S02E01.1080p.mkv"
+    src.write_text("new")
+
+    plex = tmp_path / "tv"
+    plex.mkdir()
+    dest_dir = plex / "Gen V" / "Season 02"
+    dest_dir.mkdir(parents=True)
+    existing = dest_dir / "Gen V - S02E01.mkv"
+    existing.write_text("already here")
+
+    dl = Download(title="Gen V", media_type=MediaType.TV)
+    dl.files.append(DownloadFile(url="u1", name=src.name))
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_TV_DIR = str(plex)
+        paths = organize_download(dl, [src])
+
+    assert paths[0] == str(existing)
+    assert existing.read_text() == "already here"
+    assert src.exists()
+
+
+def test_organize_with_leaf_files_param(db_session, tmp_path):
+    """organize_download accepts explicit leaf_files for re-check partial organise."""
+    src = tmp_path / "Gen.V.S02E03.1080p.mkv"
+    src.write_text("e3")
+
+    plex = tmp_path / "tv"
+    plex.mkdir()
+
+    dl = Download(title="Gen V", media_type=MediaType.TV)
+    f1 = DownloadFile(url="u1", name="Gen.V.S02E01.1080p.mkv")
+    f2 = DownloadFile(url="u2", name="Gen.V.S02E03.1080p.mkv")
+    dl.files.extend([f1, f2])
+    db_session.add(dl)
+    db_session.commit()
+
+    with patch("megaqueue.organiser.config") as mock_config:
+        mock_config.PLEX_TV_DIR = str(plex)
+        paths = organize_download(dl, [src], leaf_files=[f2])
+
+    assert len(paths) == 1
+    assert paths[0] is not None
+    assert (plex / "Gen V" / "Season 02" / "Gen V - S02E03.mkv").exists()

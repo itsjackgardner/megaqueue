@@ -73,6 +73,7 @@ class Download(Base):
         nullable=False, default=MetadataConfidence.LOW,
     )
     metadata_source = _enum_column(MetadataSource, name="metadata_source", nullable=True)
+    ongoing = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -130,6 +131,7 @@ class Download(Base):
             "error_message": self.error_message,
             "metadata_confidence": self.metadata_confidence,
             "metadata_source": self.metadata_source,
+            "ongoing": self.ongoing,
             "file_paths": self.file_paths,
             "files": [f.to_dict() for f in self.leaf_files],
             "created_at": self.created_at.isoformat() if self.created_at else None,

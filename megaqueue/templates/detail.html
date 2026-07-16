@@ -199,7 +199,26 @@ endblock %} {% block content %}
     download.created_at else 'N/A' }}
   </div>
 
+  {% set ns = namespace(has_folder_url=false) %}
+  {% for f in download.top_level_files %}{% if '/folder/' in f.url or '/#F!' in f.url %}{% set ns.has_folder_url = true %}{% endif %}{% endfor %}
+  {% if download.ongoing and download.status == 'complete' and ns.has_folder_url %}
+  <div class="mb-4">
+    <form method="POST" action="/download/{{ download.id }}/recheck">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button class="w-full bg-[#1E3A5F] hover:bg-[#254A73] text-[#5BA4E6] text-sm font-semibold font-display px-4 py-2.5 rounded-lg">
+        Re-check for new files
+      </button>
+    </form>
+  </div>
+  {% endif %}
+
   <div class="flex gap-2 justify-end">
+    <form method="POST" action="/download/{{ download.id }}/ongoing">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button class="text-sm text-[#6E7790] hover:text-[#C8CDD8] px-3 py-1.5">
+        {% if download.ongoing %}Mark as finished{% else %}Mark as ongoing{% endif %}
+      </button>
+    </form>
     {% if download.status in ('failed', 'cancelled') %}
     <form method="POST" action="/download/{{ download.id }}/retry">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

@@ -127,11 +127,12 @@ def test_resolve_source_paths_from_leaf_names(db_session, tmp_path):
 
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
-        paths, pre_extracted = resolve_source_paths(dl)
+        leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 1
     assert paths[0] == tmp_path / "movie.mkv"
     assert pre_extracted == [False]
+    assert len(leaves) == 1
 
 
 def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
@@ -156,7 +157,7 @@ def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
 
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
-        paths, pre_extracted = resolve_source_paths(dl)
+        leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 2
     assert tmp_path / "ep01.mkv" in paths
@@ -193,7 +194,7 @@ def test_resolve_source_paths_fallback_to_pre_extracted_dir(db_session, tmp_path
 
     with patch("megaqueue.lifecycle.config") as mock_config:
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
-        paths, pre_extracted = resolve_source_paths(dl)
+        leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 1
     assert paths[0] == extracted_dir
@@ -241,3 +242,42 @@ def test_resolve_source_paths_fallback_no_dir_exists(db_session, tmp_path):
         mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(FileNotFoundError, match="also checked for pre-extracted"):
             resolve_source_paths(dl)
+
+
+# --- Status derivation with mixed finished + queued (re-check scenario) ---
+
+def test_derive_mixed_finished_and_queued_after_recheck(db_session):
+    """After re-check adds new queued files alongside finished ones, status is DOWNLOADING."""
+    dl = Download(title="Show", media_type="tv", status=DownloadStatus.DOWNLOADING,
+                  metadata_confidence=MetadataConfidence.HIGH)
+    dl.files.append(DownloadFile(url="u1", name="ep01.mkv", status=FileStatus.FINISHED))
+    dl.files.append(DownloadFile(url="u2", name="ep02.mkv", status=FileStatus.FINISHED))
+    dl.files.append(DownloadFile(url="u3", name="ep03.mkv", status=FileStatus.QUEUED))
+    db_session.add(dl)
+    db_session.commit()
+
+    assert derive_download_status(dl) == DownloadStatus.DOWNLOADING
+
+
+# --- resolve_source_paths skips already-organised files ---
+
+def test_resolve_source_paths_skips_already_organised(db_session, tmp_path):
+    """Files with file_path already set are skipped during resolve."""
+    dl = Download(title="Show", media_type="tv")
+    df1 = DownloadFile(url="u1", name="ep01.mkv", status=FileStatus.FINISHED,
+                       file_path="/plex/tv/Show/Season 01/ep01.mkv")
+    df2 = DownloadFile(url="u2", name="ep02.mkv", status=FileStatus.FINISHED)
+    dl.files.extend([df1, df2])
+    db_session.add(dl)
+    db_session.commit()
+
+    (tmp_path / "ep02.mkv").touch()
+
+    with patch("megaqueue.lifecycle.config") as mock_config:
+        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        leaves, paths, pre_extracted = resolve_source_paths(dl)
+
+    assert len(leaves) == 1
+    assert leaves[0].name == "ep02.mkv"
+    assert len(paths) == 1
+    assert paths[0] == tmp_path / "ep02.mkv"

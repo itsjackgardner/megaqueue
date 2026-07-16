@@ -1,6 +1,6 @@
 import logging
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, Response, flash
 
 log = logging.getLogger(__name__)
 from flask_wtf import CSRFProtect
@@ -9,7 +9,7 @@ from flask_talisman import Talisman
 from megaqueue import config
 from megaqueue.enums import DownloadStatus, FileStatus, MediaType, MetadataConfidence, MetadataSource
 from megaqueue.models import db_session, init_db, Download, DownloadFile
-from megaqueue.mega_urls import maybe_decode_base64
+from megaqueue.mega_urls import maybe_decode_base64, is_folder_url, normalize
 from megaqueue.megabasterd_client import MegabasterdClient
 from megaqueue.worker import start_worker
 
@@ -46,12 +46,13 @@ def shutdown_session(exception=None):
 
 @app.route("/")
 def index():
-    downloads = db_session.query(Download).order_by(
-        # downloading first, then queued, then processing, then complete/failed
+    all_downloads = db_session.query(Download).order_by(
         Download.status.desc(),
         Download.created_at.desc(),
     ).all()
-    return render_template("index.html", downloads=downloads)
+    ongoing = [d for d in all_downloads if d.ongoing]
+    downloads = [d for d in all_downloads if not d.ongoing]
+    return render_template("index.html", downloads=downloads, ongoing=ongoing)
 
 
 # --- Download CRUD ---
@@ -69,6 +70,30 @@ def add_download():
 
     if not links:
         return redirect(url_for("index"))
+
+    confirmed = request.form.get("confirm_duplicate") == "1"
+
+    if not confirmed:
+        folder_links = [l for l in links if is_folder_url(l)]
+        if folder_links:
+            existing_files = db_session.query(DownloadFile).filter(
+                DownloadFile.parent_id.is_(None),
+            ).all()
+            existing_norms = {}
+            for ef in existing_files:
+                if is_folder_url(ef.url):
+                    existing_norms[normalize(ef.url)] = ef.download
+
+            for fl in folder_links:
+                norm = normalize(fl)
+                if norm in existing_norms:
+                    dup_download = existing_norms[norm]
+                    return render_template(
+                        "add.html",
+                        duplicate_warning=True,
+                        duplicate_download=dup_download,
+                        links_raw=links_raw,
+                    )
 
     dl = Download(
         title=None, year=None, media_type=None,
@@ -185,6 +210,36 @@ def clear509(download_id):
     except Exception:
         pass
     return redirect(url_for("index"))
+
+
+@app.route("/download/<int:download_id>/ongoing", methods=["POST"])
+def toggle_ongoing(download_id):
+    dl = db_session.get(Download, download_id)
+    if dl:
+        dl.ongoing = not dl.ongoing
+        db_session.commit()
+    referrer = request.referrer or url_for("index")
+    return redirect(referrer)
+
+
+@app.route("/download/<int:download_id>/recheck", methods=["POST"])
+def recheck_download(download_id):
+    from megaqueue.sync import recheck_folder
+
+    dl = db_session.get(Download, download_id)
+    if dl is None or dl.status != DownloadStatus.COMPLETE:
+        return redirect(url_for("download_detail", download_id=download_id))
+
+    has_folder = any(is_folder_url(f.url) for f in dl.top_level_files)
+    if not has_folder:
+        return redirect(url_for("download_detail", download_id=download_id))
+
+    new_count = recheck_folder(dl, mb_client)
+    if new_count > 0:
+        flash(f"Found {new_count} new file{'s' if new_count != 1 else ''} — downloading")
+    else:
+        flash("No new files found")
+    return redirect(url_for("download_detail", download_id=download_id))
 
 
 # --- API ---

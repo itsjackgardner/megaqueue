@@ -176,10 +176,13 @@ def _organize_one(file_path, download, leaf_file):
             leaf_file.error_message = "No season/episode detected"
         log.warning("Skipping '%s' — no destination resolved", file_path.name)
         return None
+    if dest.exists():
+        log.info("Destination already exists, skipping move: %s", dest)
+        return str(dest)
     return _move(file_path, dest)
 
 
-def organize_download(download, source_paths, pre_extracted=None):
+def organize_download(download, source_paths, pre_extracted=None, leaf_files=None):
     """Organise files for a finished download.
 
     Args:
@@ -187,13 +190,16 @@ def organize_download(download, source_paths, pre_extracted=None):
             year (optional), media_type, and a leaf_files list whose
             is_extra flags drive movie routing.
         source_paths: list of Path objects, one per leaf file (same order
-            as download.leaf_files).
+            as leaf_files).
         pre_extracted: optional list of bools (same length as source_paths)
             indicating whether each path is a pre-extracted directory
             rather than a downloadable file/archive.
+        leaf_files: optional list of DownloadFile records to organise.
+            Defaults to download.leaf_files. Used by re-check to pass
+            only the pending files.
 
     Returns the list of final destination path strings aligned by index
-    with download.leaf_files. For archive sources, the leaf's file_path
+    with leaf_files. For archive sources, the leaf's file_path
     is set to the first extracted file's final destination; subsequent
     extracted files are routed individually but not threaded back into
     the DB (Plex picks them up by folder scan).
@@ -201,7 +207,8 @@ def organize_download(download, source_paths, pre_extracted=None):
     if pre_extracted is None:
         pre_extracted = [False] * len(source_paths)
 
-    leaf_files = download.leaf_files
+    if leaf_files is None:
+        leaf_files = download.leaf_files
     final_paths = [None] * len(leaf_files)
 
     temp_dir = Path(tempfile.mkdtemp(prefix="megaqueue_"))

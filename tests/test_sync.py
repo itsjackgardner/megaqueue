@@ -9,6 +9,7 @@ from megaqueue.models import Download, DownloadFile
 from megaqueue.sync import (
     match_megabasterd_files,
     maybe_expand_folder_files,
+    recheck_folder,
     update_file_from_megabasterd,
     submit_pending,
     sync_active,
@@ -253,8 +254,9 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
 @patch("megaqueue.lifecycle.organiser")
 def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail, mock_resolve, db_session):
     """A finished download with high metadata confidence runs the organiser."""
+    leaf_mock = MagicMock()
     mock_fb.organize_download.return_value = ["/dest/movie.mkv"]
-    mock_resolve.return_value = ([Path("/tmp/test-downloads/movie.mkv")], [False])
+    mock_resolve.return_value = ([leaf_mock], [Path("/tmp/test-downloads/movie.mkv")], [False])
 
     # Pre-set high confidence so derive_download_status returns PROCESSING.
     # In real flow, metadata.refresh would compute this from the filename.
@@ -406,8 +408,9 @@ def test_sync_recovers_stuck_processing_download(mock_fb, mock_resolve, db_sessi
     """A download that was flipped to PROCESSING but never had post_process run
     (e.g. the resolve route set the status but the worker didn't see it) is
     recovered on the next tick by re-invoking post_process."""
+    leaf_mock = MagicMock()
     mock_fb.organize_download.return_value = ["/dest/x.mkv"]
-    mock_resolve.return_value = ([Path("/tmp/test-downloads/X.2020.1080p.mkv")], [False])
+    mock_resolve.return_value = ([leaf_mock], [Path("/tmp/test-downloads/X.2020.1080p.mkv")], [False])
 
     dl = Download(title="X", year=2020, media_type="movie", status=DownloadStatus.PROCESSING,
                   metadata_confidence=MetadataConfidence.HIGH,
@@ -684,3 +687,109 @@ def test_pending_entry_does_not_advance_status(mock_fb, mock_ok, mock_fail, db_s
     db_session.refresh(dl)
     assert dl.files[0].status == FileStatus.QUEUED
     assert dl.status == DownloadStatus.QUEUED
+
+
+# --- Folder Re-check ---
+
+def test_recheck_folder_adds_new_files(db_session):
+    """Re-check detects new files, creates child records, and submits to megabasterd."""
+    folder_url = "https://mega.nz/folder/abc#key"
+    dl = Download(title="Show", media_type="tv", status=DownloadStatus.COMPLETE)
+    folder_df = DownloadFile(url=folder_url, status=FileStatus.FINISHED)
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    existing_child = DownloadFile(
+        download_id=dl.id, parent_id=folder_df.id,
+        url="https://mega.nz/#N!id1!k1###n=abc", name="ep01.mkv",
+        status=FileStatus.FINISHED, file_path="/plex/tv/Show/Season 01/ep01.mkv",
+    )
+    db_session.add(existing_child)
+    db_session.commit()
+    db_session.refresh(dl)
+
+    client = MagicMock()
+    client.folder_list.return_value = [
+        {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 1000},
+        {"name": "ep02.mkv", "url": "https://mega.nz/#N!id2!k2###n=abc", "size": 2000},
+        {"name": "ep03.mkv", "url": "https://mega.nz/#N!id3!k3###n=abc", "size": 2000},
+    ]
+
+    new_count = recheck_folder(dl, client)
+
+    assert new_count == 2
+    assert dl.status == DownloadStatus.DOWNLOADING
+    assert dl.downloading_since is not None
+    client.start.assert_called_once()
+    started_urls = client.start.call_args[0][0]
+    assert len(started_urls) == 2
+
+    db_session.refresh(dl)
+    leaf_names = {f.name for f in dl.leaf_files}
+    assert "ep02.mkv" in leaf_names
+    assert "ep03.mkv" in leaf_names
+
+
+def test_recheck_folder_no_new_files(db_session):
+    """Re-check when all files already exist returns 0 and keeps status."""
+    folder_url = "https://mega.nz/folder/abc#key"
+    dl = Download(title="Show", media_type="tv", status=DownloadStatus.COMPLETE)
+    folder_df = DownloadFile(url=folder_url, status=FileStatus.FINISHED)
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    existing_child = DownloadFile(
+        download_id=dl.id, parent_id=folder_df.id,
+        url="https://mega.nz/#N!id1!k1###n=abc", name="ep01.mkv",
+        status=FileStatus.FINISHED,
+    )
+    db_session.add(existing_child)
+    db_session.commit()
+    db_session.refresh(dl)
+
+    client = MagicMock()
+    client.folder_list.return_value = [
+        {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 1000},
+    ]
+
+    new_count = recheck_folder(dl, client)
+
+    assert new_count == 0
+    assert dl.status == DownloadStatus.COMPLETE
+    client.start.assert_not_called()
+
+
+def test_recheck_folder_preserves_existing_file_state(db_session):
+    """Re-check does not modify existing finished files."""
+    folder_url = "https://mega.nz/folder/abc#key"
+    dl = Download(title="Show", media_type="tv", status=DownloadStatus.COMPLETE)
+    folder_df = DownloadFile(url=folder_url, status=FileStatus.FINISHED)
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+
+    existing_child = DownloadFile(
+        download_id=dl.id, parent_id=folder_df.id,
+        url="https://mega.nz/#N!id1!k1###n=abc", name="ep01.mkv",
+        status=FileStatus.FINISHED, progress_bytes=5000, total_bytes=5000,
+        file_path="/plex/tv/Show/Season 01/ep01.mkv",
+    )
+    db_session.add(existing_child)
+    db_session.commit()
+    child_id = existing_child.id
+    db_session.refresh(dl)
+
+    client = MagicMock()
+    client.folder_list.return_value = [
+        {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 5000},
+        {"name": "ep02.mkv", "url": "https://mega.nz/#N!id2!k2###n=abc", "size": 3000},
+    ]
+
+    recheck_folder(dl, client)
+
+    existing = db_session.get(DownloadFile, child_id)
+    assert existing.status == FileStatus.FINISHED
+    assert existing.progress_bytes == 5000
+    assert existing.file_path == "/plex/tv/Show/Season 01/ep01.mkv"

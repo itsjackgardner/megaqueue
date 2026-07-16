@@ -97,6 +97,12 @@ def _create_log_entries_table(conn):
     """)
 
 
+def _add_ongoing_column(conn):
+    conn.exec_driver_sql(
+        "ALTER TABLE downloads ADD COLUMN ongoing BOOLEAN NOT NULL DEFAULT 0"
+    )
+
+
 MIGRATIONS = [
     ("add_parent_id_column", _add_parent_id_column),
     ("add_metadata_confidence_column", _add_metadata_confidence_column),
@@ -104,6 +110,7 @@ MIGRATIONS = [
     ("add_is_extra_column", _add_is_extra_column),
     ("widen_status_enum", _widen_status_enum),
     ("create_log_entries_table", _create_log_entries_table),
+    ("add_ongoing_column", _add_ongoing_column),
 ]
 
 

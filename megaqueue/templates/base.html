@@ -36,6 +36,13 @@
       </div>
     </nav>
     <main class="{% block main_class %}max-w-2xl mx-auto px-4{% endblock %} py-6 content-fade">
+      {% with messages = get_flashed_messages() %}
+      {% if messages %}
+      {% for message in messages %}
+      <div class="bg-[#1E3A5F]/50 border border-[#5BA4E6]/30 rounded-lg p-3 mb-4 text-sm text-[#5BA4E6]">{{ message }}</div>
+      {% endfor %}
+      {% endif %}
+      {% endwith %}
       {% block content %}{% endblock %}
     </main>
     {% block scripts %}{% endblock %}

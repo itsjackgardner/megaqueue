@@ -259,6 +259,67 @@ def sync_active(client, mb_downloads):
     return matched_file_ids
 
 
+def recheck_folder(download, client):
+    """Re-check a completed folder download for new files.
+
+    Queries megabasterd for the current folder contents, diffs by filename
+    against existing leaf files, and creates new child DownloadFile records
+    for any files not already present. Returns the count of new files added.
+    """
+    new_count = 0
+
+    for tf in download.top_level_files:
+        if not is_folder_url(tf.url):
+            continue
+
+        try:
+            folder_files = client.folder_list(tf.url)
+        except Exception as e:
+            log.error("Failed to list folder '%s': %s", tf.url, e)
+            continue
+
+        existing_names = {f.name for f in tf.children if f.name}
+
+        for ff in folder_files:
+            name = ff.get("name")
+            if not name or name in existing_names:
+                continue
+
+            child = DownloadFile(
+                download_id=download.id,
+                parent_id=tf.id,
+                url=ff.get("url", ""),
+                name=name,
+                status=FileStatus.QUEUED,
+                progress_bytes=0,
+                total_bytes=0,
+                speed=0,
+            )
+            db_session.add(child)
+            new_count += 1
+
+    if new_count > 0:
+        db_session.flush()
+        db_session.refresh(download)
+        new_urls = [
+            f.url for f in download.leaf_files
+            if f.status == FileStatus.QUEUED and f.url
+        ]
+        if new_urls:
+            try:
+                client.start(new_urls)
+            except Exception as e:
+                log.error("Failed to submit re-checked files to megabasterd: %s", e)
+        download.status = DownloadStatus.DOWNLOADING
+        download.downloading_since = datetime.utcnow()
+        db_session.commit()
+        log.info("Re-check found %d new files for '%s'", new_count, download.title)
+    else:
+        db_session.commit()
+
+    return new_count
+
+
 def integrity_sweep(matched_file_ids):
     """Fail any queued/downloading leaf records that have gone missing from megabasterd."""
     active = db_session.query(Download).filter(

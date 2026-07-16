@@ -46,16 +46,21 @@ def derive_download_status(download):
 def resolve_source_paths(download):
     """Resolve source file paths from DownloadFile.name fields for post-processing.
 
-    Returns (source_paths, pre_extracted) where pre_extracted[i] is True
-    if the path is a pre-extracted directory rather than the original file.
+    Returns (leaf_files, source_paths, pre_extracted) where:
+    - leaf_files: the DownloadFile records that need organising (excludes already-organised)
+    - source_paths: corresponding filesystem paths
+    - pre_extracted[i]: True if path is a pre-extracted directory
     """
     from megaqueue.organiser import ARCHIVE_EXTENSIONS, _has_media_files
 
     download_dir = Path(config.MEGABASTERD_DOWNLOAD_DIR)
+    leaf_files = []
     source_paths = []
     pre_extracted = []
 
     for df in download.leaf_files:
+        if df.file_path:
+            continue
         if not df.name:
             raise ValueError(
                 f"Could not determine download file path: DownloadFile name not set "
@@ -63,6 +68,7 @@ def resolve_source_paths(download):
             )
         file_path = download_dir / df.name
         if file_path.exists():
+            leaf_files.append(df)
             source_paths.append(file_path)
             pre_extracted.append(False)
         elif file_path.suffix.lower() in ARCHIVE_EXTENSIONS:
@@ -72,6 +78,7 @@ def resolve_source_paths(download):
                     "Archive '%s' not found, using pre-extracted directory '%s'",
                     df.name, stem_dir,
                 )
+                leaf_files.append(df)
                 source_paths.append(stem_dir)
                 pre_extracted.append(True)
             elif stem_dir.is_dir():
@@ -90,7 +97,7 @@ def resolve_source_paths(download):
     if not source_paths:
         raise FileNotFoundError("No source file paths resolved")
 
-    return source_paths, pre_extracted
+    return leaf_files, source_paths, pre_extracted
 
 
 def _stop_megabasterd_entries(download, client):
@@ -144,9 +151,9 @@ def post_process(download, client):
     _stop_megabasterd_entries(download, client)
 
     try:
-        source_paths, pre_extracted = resolve_source_paths(download)
-        final_paths = organiser.organize_download(download, source_paths, pre_extracted)
-        for df, fp in zip(download.leaf_files, final_paths):
+        pending_leaves, source_paths, pre_extracted = resolve_source_paths(download)
+        final_paths = organiser.organize_download(download, source_paths, pre_extracted, pending_leaves)
+        for df, fp in zip(pending_leaves, final_paths):
             if fp:
                 df.file_path = fp
         download.status = DownloadStatus.COMPLETE

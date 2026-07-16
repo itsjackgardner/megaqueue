@@ -319,3 +319,142 @@ def test_retry_failed_download_resets_to_queued(mock_worker, client, db_session)
     assert dl.status == "queued"
     assert dl.files[0].status == "queued"
     assert dl.files[0].progress_bytes == 0
+
+
+# --- Ongoing Toggle ---
+
+@patch("megaqueue.app.start_worker")
+def test_toggle_ongoing_on(mock_worker, client, db_session):
+    dl = Download(title="Show", media_type="tv", status="complete")
+    dl.files.append(DownloadFile(url="u", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+    assert dl.ongoing is False
+
+    resp = client.post(f"/download/{dl_id}/ongoing", follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.ongoing is True
+
+
+@patch("megaqueue.app.start_worker")
+def test_toggle_ongoing_off(mock_worker, client, db_session):
+    dl = Download(title="Show", media_type="tv", status="complete", ongoing=True)
+    dl.files.append(DownloadFile(url="u", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/ongoing", follow_redirects=False)
+    assert resp.status_code == 302
+
+    dl = db_session.get(Download, dl_id)
+    assert dl.ongoing is False
+
+
+# --- Dashboard Ongoing/Non-ongoing Separation ---
+
+@patch("megaqueue.app.start_worker")
+def test_dashboard_separates_ongoing(mock_worker, client, db_session):
+    dl_ongoing = Download(title="Ongoing Show", media_type="tv", status="downloading", ongoing=True)
+    dl_ongoing.files.append(DownloadFile(url="u1", status="downloading"))
+    dl_regular = Download(title="Regular Movie", media_type="movie", status="queued")
+    dl_regular.files.append(DownloadFile(url="u2", status="queued"))
+    db_session.add_all([dl_ongoing, dl_regular])
+    db_session.commit()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert "Ongoing" in html
+    assert "Ongoing Show" in html
+    assert "Regular Movie" in html
+
+
+# --- Duplicate Folder URL Detection ---
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_duplicate_folder_url_shows_warning(mock_mb, mock_worker, client, db_session):
+    mock_mb.start = MagicMock()
+    dl = Download(title="Existing Show", media_type="tv", status="complete")
+    dl.files.append(DownloadFile(url="https://mega.nz/folder/abc#key", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+
+    resp = client.post("/download", data={
+        "links": "https://mega.nz/folder/abc#key",
+    }, follow_redirects=False)
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert "already in your queue" in html
+    assert "Existing Show" in html
+
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_duplicate_folder_url_confirm_adds_anyway(mock_mb, mock_worker, client, db_session):
+    mock_mb.start = MagicMock()
+    dl = Download(title="Existing Show", media_type="tv", status="complete")
+    dl.files.append(DownloadFile(url="https://mega.nz/folder/abc#key", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+
+    resp = client.post("/download", data={
+        "links": "https://mega.nz/folder/abc#key",
+        "confirm_duplicate": "1",
+    }, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert db_session.query(Download).count() == 2
+
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_non_folder_url_no_duplicate_check(mock_mb, mock_worker, client, db_session):
+    mock_mb.start = MagicMock()
+    dl = Download(title="Existing Movie", media_type="movie", status="complete")
+    dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status="finished"))
+    db_session.add(dl)
+    db_session.commit()
+
+    resp = client.post("/download", data={
+        "links": "https://mega.nz/file/abc#key",
+    }, follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert db_session.query(Download).count() == 2
+
+
+# --- Recheck Route ---
+
+@patch("megaqueue.app.start_worker")
+@patch("megaqueue.app.mb_client")
+def test_recheck_route_calls_recheck_folder(mock_mb, mock_worker, client, db_session):
+    dl = Download(title="Show", media_type="tv", status="complete")
+    folder_df = DownloadFile(url="https://mega.nz/folder/abc#key", status="finished")
+    dl.files.append(folder_df)
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    with patch("megaqueue.sync.recheck_folder", return_value=2) as mock_recheck:
+        resp = client.post(f"/download/{dl_id}/recheck", follow_redirects=False)
+
+    assert resp.status_code == 302
+    mock_recheck.assert_called_once()
+
+
+@patch("megaqueue.app.start_worker")
+def test_recheck_route_rejects_non_complete(mock_worker, client, db_session):
+    dl = Download(title="Show", media_type="tv", status="downloading")
+    dl.files.append(DownloadFile(url="https://mega.nz/folder/abc#key", status="downloading"))
+    db_session.add(dl)
+    db_session.commit()
+    dl_id = dl.id
+
+    resp = client.post(f"/download/{dl_id}/recheck", follow_redirects=False)
+    assert resp.status_code == 302

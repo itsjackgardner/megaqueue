@@ -109,3 +109,28 @@ def test_http_error_raises(mb_client):
     responses.get("http://localhost:9999/status", status=500)
     with pytest.raises(Exception):
         mb_client.status()
+
+
+# --- folder_list ---
+
+@responses.activate
+def test_folder_list_returns_files(mb_client):
+    responses.get(
+        "http://localhost:9999/folder-list",
+        json=[
+            {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 1000},
+            {"name": "ep02.mkv", "url": "https://mega.nz/#N!id2!k2###n=abc", "size": 2000},
+        ],
+    )
+
+    result = mb_client.folder_list("https://mega.nz/folder/abc#key")
+    assert len(result) == 2
+    assert result[0]["name"] == "ep01.mkv"
+    assert "url" in responses.calls[0].request.params
+
+
+@responses.activate
+def test_folder_list_connection_error_raises(mb_client):
+    responses.get("http://localhost:9999/folder-list", body=ConnectionError("refused"))
+    with pytest.raises(ConnectionError):
+        mb_client.folder_list("https://mega.nz/folder/abc#key")

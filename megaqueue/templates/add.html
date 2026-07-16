@@ -6,6 +6,28 @@
   are detected from the filenames; you only need to review if detection is
   ambiguous.
 </p>
+
+{% if duplicate_warning %}
+<div class="bg-[#3D2E1A]/50 border border-[#D4943C]/30 rounded-lg p-4 mb-4">
+  <p class="text-sm text-[#D4943C] font-semibold mb-1">This folder is already in your queue</p>
+  <p class="text-sm text-[#6E7790] mb-3">
+    <a href="/download/{{ duplicate_download.id }}" class="text-[#D4943C] hover:text-[#E8B86D] underline">
+      {{ duplicate_download.title or 'Untitled download' }}
+    </a>
+    already has this folder link. You can re-check it for new files instead.
+  </p>
+  <div class="flex gap-3">
+    <a href="/download/{{ duplicate_download.id }}" class="text-sm bg-[#D4943C] hover:bg-[#C28535] text-[#101420] font-semibold font-display px-4 py-2 rounded-lg">Go to existing</a>
+    <form method="POST" action="/download">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="links" value="{{ links_raw }}" />
+      <input type="hidden" name="confirm_duplicate" value="1" />
+      <button type="submit" class="text-sm text-[#6E7790] hover:text-[#C8CDD8] px-4 py-2">Add anyway</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <form method="POST" action="/download" class="space-y-4">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
@@ -19,7 +41,7 @@
       required
       placeholder="https://mega.nz/file/..."
       class="w-full bg-[#101420] border border-[#252A3C] rounded-lg px-3 py-2.5 text-[#C8CDD8] placeholder-[#6E7790] focus:outline-none focus:border-[#D4943C] focus:ring-1 focus:ring-[#D4943C]/30 font-mono text-sm"
-    ></textarea>
+    >{{ links_raw or '' }}</textarea>
   </div>
 
   <button

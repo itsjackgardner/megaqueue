@@ -78,6 +78,10 @@ class MegabasterdClient:
         """POST /rename — rename a completed download's file."""
         return self._request("POST", "/rename", json={"url": url, "newName": new_name})
 
+    def folder_list(self, url):
+        """GET /folder-list — list files in a mega.nz folder without downloading."""
+        return self._request("GET", "/folder-list", params={"url": url})
+
     def is_reachable(self):
         """Check if the megabasterd API is reachable."""
         try:

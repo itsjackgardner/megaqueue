@@ -1,6 +1,7 @@
 // Auto-refresh dashboard every 5 seconds
 (function () {
   const container = document.getElementById("downloads");
+  const ongoingContainer = document.getElementById("ongoing");
   if (!container) return;
 
   function formatBytes(bytes) {
@@ -13,20 +14,35 @@
     return (bps / 1048576).toFixed(1) + " MB/s";
   }
 
+  function findCard(id) {
+    return container.querySelector('[data-id="' + id + '"]')
+      || (ongoingContainer && ongoingContainer.querySelector('[data-id="' + id + '"]'));
+  }
+
+  function cardCount() {
+    let n = container.querySelectorAll("[data-id]").length;
+    if (ongoingContainer) n += ongoingContainer.querySelectorAll("[data-id]").length;
+    return n;
+  }
+
   async function refresh() {
     try {
       const resp = await fetch("/api/status");
       if (!resp.ok) return;
       const downloads = await resp.json();
 
-      downloads.forEach(function (dl) {
-        const card = container.querySelector('[data-id="' + dl.id + '"]');
+      if (downloads.length !== cardCount()) {
+        location.reload();
+        return;
+      }
+
+      for (const dl of downloads) {
+        const card = findCard(dl.id);
         if (!card) {
           location.reload();
           return;
         }
 
-        // Check for status change by reading the badge text
         const badge = card.querySelector("[data-status]");
         const currentStatus = badge ? badge.dataset.status : "";
         if (currentStatus !== dl.status) {
@@ -34,7 +50,6 @@
           return;
         }
 
-        // Update progress bar if downloading
         if ((dl.status === "downloading" || dl.status === "queued") && dl.total_bytes > 0) {
           const pct = ((dl.progress_bytes / dl.total_bytes) * 100).toFixed(1);
           const bar = card.querySelector(".fetch-bar");
@@ -49,7 +64,7 @@
             stats[1].textContent = speedStr;
           }
         }
-      });
+      }
     } catch (e) {
       // Silently ignore fetch errors
     }
