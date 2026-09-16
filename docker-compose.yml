@@ -1,18 +1,22 @@
 services:
   megaqueue:
     build: .
+    container_name: megaqueue
     ports:
-      - "5000:5000"
+      - '5000:5000'
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
-      - ${MEGAQUEUE_DOWNLOAD_DIR}:/data/downloads
-      - ${MEGAQUEUE_PLEX_MOVIES_DIR}:/media/movies
-      - ${MEGAQUEUE_PLEX_TV_DIR}:/media/tv
-    environment:
-      - MEGAQUEUE_DATABASE_URL=sqlite:////app/data/megaqueue.db
-      - MEGAQUEUE_DOWNLOAD_DIR=/data/downloads
-      - MEGAQUEUE_PLEX_MOVIES_DIR=/media/movies
-      - MEGAQUEUE_PLEX_TV_DIR=/media/tv
+      - megaqueue-data:/app/data
+      - ${HOST_DOWNLOAD_DIR}:/data/downloads
+      - ${HOST_PLEX_MOVIES_DIR}:/media/movies
+      - ${HOST_PLEX_TV_DIR}:/media/tv
     restart: unless-stopped
+
+volumes:
+  megaqueue-data:
+
+networks:
+  default:
+    name: homelab
+    external: true
