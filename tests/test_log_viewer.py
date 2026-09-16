@@ -16,7 +16,7 @@ def test_log_entry_creation(db_session):
         timestamp=datetime(2026, 6, 11, 12, 0, 0),
         level="INFO",
         module="sync",
-        message="Submitted 'Inception' to megabasterd",
+        message="Submitted 'Inception' for download",
     )
     db_session.add(entry)
     db_session.commit()

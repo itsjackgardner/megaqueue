@@ -1,6 +1,6 @@
 # MegaQueue
 
-Python Flask app that queues mega.nz downloads via megabasterd, organizes files into Plex library folders, and sends push notifications.
+Python Flask app that queues mega.nz downloads via a vendored megapull library, organizes files into Plex library folders, and sends push notifications. Runs in Docker on Linux.
 
 ## Project Structure
 
@@ -13,11 +13,12 @@ megaqueue/              # Package directory (all source code)
 ├── models.py           # SQLAlchemy models (Download, DownloadFile)
 ├── migrations.py       # Named, ordered schema migrations called from init_db()
 ├── worker.py           # Background thread — drives the poll loop
-├── sync.py             # megabasterd ↔ DB sync (matching, folder expansion, file updates)
+├── sync.py             # Download engine ↔ DB sync (matching, folder expansion, file updates)
 ├── lifecycle.py        # Status derivation, post-processing orchestration
 ├── mega_urls.py        # Pure URL helpers (normalise, extract_folder_id, is_folder_url)
 ├── metadata.py         # guessit-driven metadata aggregation (title/year/media_type)
-├── megabasterd_client.py  # HTTP client for megabasterd REST API
+├── mega_downloader.py  # In-process MEGA download manager (async bridge to megapull)
+├── megapull/           # Vendored megapull library (async MEGA downloads via httpx)
 ├── organiser.py        # Hand-rolled organiser (movies + extras, TV episodes)
 ├── notifications.py    # ntfy.sh push notifications
 ├── static/             # JS, icons, PWA manifest
@@ -28,10 +29,37 @@ requirements.txt
 requirements-dev.txt
 ```
 
+## Architecture
+
+```
+User (phone browser) → Flask Web UI → Database (SQLite)
+                                    ↕ (background worker polls every 5s)
+                              MegaDownloadManager (in-process, async)
+                                    ↓ (on completion)
+                              File Organizer → Plex library folders
+                                    ↓
+                              ntfy.sh push notification
+```
+
+### Data Model
+
+Two SQLAlchemy models:
+- **`Download`** — One per user-submitted queue entry. Fields: `title`, `year`, `media_type` (movie|tv), `status` (queued|downloading|processing|complete|failed|cancelled), `downloading_since`, `error_message`, timestamps. Status is *derived* from its files.
+- **`DownloadFile`** — One per mega.nz link. Fields: `url`, `name`, `status` (queued|downloading|finished|failed), `progress_bytes`, `total_bytes`, `speed`, `error_message`, `file_path`. Download aggregates these for overall progress.
+
+### Download Engine
+
+`MegaDownloadManager` runs an asyncio event loop in a daemon thread. The sync worker thread polls `manager.status()` every 5 seconds. Matching between download entries and `DownloadFile` records uses **three-tier matching**: (1) direct URL match with normalization, (2) `sourceUrl` match for folder downloads split into per-file entries, and (3) folder-ID match using `###n=` suffix extraction.
+
+### Configuration
+
+All config via `MEGAQUEUE_*` environment variables. Required at startup: `SECRET_KEY`, `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, `NTFY_TOPIC`, `DOWNLOAD_DIR`. Defaults: `POLL_INTERVAL=5`, `GRACE_PERIOD=30`, `DOWNLOAD_WORKERS=8`. Optional: `PROXY_FILE`. `unrar` must be on PATH at runtime if any download contains a `.rar` archive.
+
 ## Running
 
 ```bash
-python run.py
+docker compose up -d        # Docker (recommended)
+python run.py               # Local development
 ```
 
 ## Frontend conventions
@@ -58,10 +86,10 @@ tests/
 ├── conftest.py                  # Shared fixtures: db_session, app, client, sample_download
 ├── test_models.py               # Model creation, relationships, computed properties
 ├── test_migrations.py           # Named migrations idempotent against legacy DBs
-├── test_megabasterd_client.py   # HTTP client (mocked with `responses` library)
+├── test_mega_downloader.py      # MegaDownloadManager: status shape, start/cancel/remove
 ├── test_mega_urls.py            # URL normalisation, folder-ID extraction, predicates
 ├── test_metadata.py             # guessit parse + aggregation + confidence scoring
-├── test_sync.py                 # megabasterd matching, folder expansion, per-file updates
+├── test_sync.py                 # Download engine matching, folder expansion, per-file updates
 ├── test_lifecycle.py            # status derivation, source-path resolution
 ├── test_organiser.py            # Plex-canonical paths, archive extraction (mocked)
 ├── test_worker.py               # Poll loop drives sync.* in order
@@ -72,7 +100,27 @@ tests/
 ### Conventions
 
 - **Database:** Tests use in-memory SQLite via the `db_session` fixture (conftest.py). Never use the production database.
-- **HTTP mocking:** Use the `responses` library to mock external HTTP calls (megabasterd API, ntfy.sh). Never make real HTTP requests in tests.
+- **HTTP mocking:** Use the `responses` library to mock external HTTP calls (ntfy.sh). Never make real HTTP requests in tests.
 - **Filesystem:** Use pytest's `tmp_path` fixture for tests that need real file operations (organiser tests).
-- **Flask routes:** Use the `client` fixture with `@patch("megaqueue.app.start_worker")` to avoid starting the background worker. Mock `megaqueue.app.mb_client` for routes that call megabasterd.
+- **Flask routes:** Use the `client` fixture with `@patch("megaqueue.app.start_worker")` to avoid starting the background worker. Mock `megaqueue.app.mega_manager` for routes that call the download manager.
 - **Lifecycle/sync tests:** Mock `megaqueue.lifecycle.organiser`, `megaqueue.lifecycle.notify_completion`, `megaqueue.lifecycle.notify_failure`, and `megaqueue.sync.notify_needs_review` to isolate logic from side effects.
+
+## OpenSpec Workflow
+
+Changes are managed through the `openspec/` directory:
+
+- **`openspec/specs/`** — Canonical spec documents (ground truth for how the system should behave), organized by capability (data-model, download-engine, web-ui, etc.)
+- **`openspec/changes/`** — Active in-progress change artifacts (proposal, design, tasks, updated specs)
+- **`openspec/changes/archive/`** — Completed/archived changes
+
+Use `/propose`, `/apply`, `/verify`, and `/archive` skills to work within this workflow. Specs are the source of truth — when implementing features, check the relevant spec in `openspec/specs/` for requirements and scenarios.
+
+## Querying the Database
+
+To query the database, use Python:
+
+```bash
+python -c "import sqlite3, json; conn=sqlite3.connect('megaqueue.db'); conn.row_factory=sqlite3.Row; print(json.dumps([dict(r) for r in conn.execute('SELECT * FROM downloads WHERE title LIKE \"%example%\"')], indent=2, default=str))"
+```
+
+The database is at `megaqueue.db`. The schema is defined in `megaqueue/models.py` and `megaqueue/migrations.py`.

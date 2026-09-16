@@ -5,11 +5,12 @@ def _env(key, default=None):
     """Get config from environment variable (MEGAQUEUE_ prefix) or return default."""
     return os.environ.get(f"MEGAQUEUE_{key}", default)
 
-# Megabasterd REST API
-MEGABASTERD_API_URL = _env("MEGABASTERD_API_URL", "http://localhost:8127")
-MEGABASTERD_POLL_INTERVAL = int(_env("MEGABASTERD_POLL_INTERVAL", "5"))
-MEGABASTERD_GRACE_PERIOD = int(_env("MEGABASTERD_GRACE_PERIOD", "30"))
-MEGABASTERD_DOWNLOAD_DIR = _env("MEGABASTERD_DOWNLOAD_DIR")
+# Download engine
+DOWNLOAD_DIR = _env("DOWNLOAD_DIR")
+POLL_INTERVAL = int(_env("POLL_INTERVAL", "5"))
+GRACE_PERIOD = int(_env("GRACE_PERIOD", "30"))
+DOWNLOAD_WORKERS = int(_env("DOWNLOAD_WORKERS", "8"))
+PROXY_FILE = _env("PROXY_FILE")
 
 # Plex library paths
 PLEX_MOVIES_DIR = _env("PLEX_MOVIES_DIR")
@@ -33,7 +34,7 @@ DATABASE_URL = _env("DATABASE_URL", "sqlite:///megaqueue.db")
 _REQUIRED = {
     "PLEX_MOVIES_DIR": PLEX_MOVIES_DIR,
     "PLEX_TV_DIR": PLEX_TV_DIR,
-    "MEGABASTERD_DOWNLOAD_DIR": MEGABASTERD_DOWNLOAD_DIR,
+    "DOWNLOAD_DIR": DOWNLOAD_DIR,
     "NTFY_TOPIC": NTFY_TOPIC,
     "SECRET_KEY": SECRET_KEY,
 }

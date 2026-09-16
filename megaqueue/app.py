@@ -10,7 +10,7 @@ from megaqueue import config
 from megaqueue.enums import DownloadStatus, FileStatus, MediaType, MetadataConfidence, MetadataSource
 from megaqueue.models import db_session, init_db, Download, DownloadFile
 from megaqueue.mega_urls import maybe_decode_base64, is_folder_url, normalize
-from megaqueue.megabasterd_client import MegabasterdClient
+from megaqueue.mega_downloader import MegaDownloadManager
 from megaqueue.worker import start_worker
 
 app = Flask(__name__)
@@ -34,7 +34,7 @@ Talisman(
     },
 )
 
-mb_client = MegabasterdClient()
+mega_manager: MegaDownloadManager | None = None
 
 
 @app.teardown_appcontext
@@ -105,7 +105,7 @@ def add_download():
 
     db_session.add(dl)
     db_session.commit()
-    log.info("Queued %d link(s) — will submit to megabasterd", len(links))
+    log.info("Queued %d link(s)", len(links))
 
     return redirect(url_for("index"))
 
@@ -186,11 +186,13 @@ def cancel_download(download_id):
     if dl and dl.status in (DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING):
         dl.status = DownloadStatus.CANCELLED
         db_session.commit()
-        try:
-            for link in dl.links:
-                mb_client.stop(link, delete=True)
-        except Exception:
-            pass
+        if mega_manager:
+            try:
+                for link in dl.links:
+                    mega_manager.cancel(link)
+                    mega_manager.remove(link)
+            except Exception:
+                pass
     return redirect(url_for("index"))
 
 
@@ -200,15 +202,6 @@ def delete_download(download_id):
     if dl:
         db_session.delete(dl)
         db_session.commit()
-    return redirect(url_for("index"))
-
-
-@app.route("/download/<int:download_id>/clear509", methods=["POST"])
-def clear509(download_id):
-    try:
-        mb_client.clear509()
-    except Exception:
-        pass
     return redirect(url_for("index"))
 
 
@@ -234,7 +227,7 @@ def recheck_download(download_id):
     if not has_folder:
         return redirect(url_for("download_detail", download_id=download_id))
 
-    new_count = recheck_folder(dl, mb_client)
+    new_count = recheck_folder(dl, mega_manager)
     if new_count > 0:
         flash(f"Found {new_count} new file{'s' if new_count != 1 else ''} — downloading")
     else:

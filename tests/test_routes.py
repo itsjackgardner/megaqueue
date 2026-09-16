@@ -24,10 +24,8 @@ def test_add_download_form(mock_worker, client, db_session):
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_create_download_links_only(mock_mb, mock_worker, client, db_session):
+def test_create_download_links_only(mock_worker, client, db_session):
     """Submit only accepts links; title/year/media_type are inferred later by guessit."""
-    mock_mb.start = MagicMock()
 
     resp = client.post("/download", data={
         "links": "https://mega.nz/file/abc#key1\nhttps://mega.nz/file/def#key2",
@@ -48,8 +46,7 @@ def test_create_download_links_only(mock_mb, mock_worker, client, db_session):
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_create_download_empty_links_redirects(mock_mb, mock_worker, client, db_session):
+def test_create_download_empty_links_redirects(mock_worker, client, db_session):
     resp = client.post("/download", data={
         "links": "",
     }, follow_redirects=False)
@@ -177,10 +174,8 @@ def test_old_resolve_url_not_found(mock_worker, client, db_session):
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_create_download_base64_encoded(mock_mb, mock_worker, client, db_session):
+def test_create_download_base64_encoded(mock_worker, client, db_session):
     """Base64-encoded mega.nz URLs are decoded before creating DownloadFile records."""
-    mock_mb.start = MagicMock()
     url = "https://mega.nz/file/abc#key1"
     encoded = base64.b64encode(url.encode()).decode()
 
@@ -194,10 +189,8 @@ def test_create_download_base64_encoded(mock_mb, mock_worker, client, db_session
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_create_download_double_encoded(mock_mb, mock_worker, client, db_session):
+def test_create_download_double_encoded(mock_worker, client, db_session):
     """Double-base64-encoded mega.nz URLs are decoded through both layers."""
-    mock_mb.start = MagicMock()
     url = "https://mega.nz/folder/abc#key1"
     double_encoded = base64.b64encode(base64.b64encode(url.encode())).decode()
 
@@ -260,9 +253,10 @@ def test_api_status_returns_leaf_files_for_folder_download(mock_worker, client, 
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_cancel_download(mock_mb, mock_worker, client, db_session, sample_download):
-    mock_mb.stop = MagicMock()
+@patch("megaqueue.app.mega_manager")
+def test_cancel_download(mock_manager, mock_worker, client, db_session, sample_download):
+    mock_manager.cancel = MagicMock()
+    mock_manager.remove = MagicMock()
     dl_id = sample_download.id
 
     resp = client.post(f"/download/{dl_id}/cancel", follow_redirects=False)
@@ -376,9 +370,7 @@ def test_dashboard_separates_ongoing(mock_worker, client, db_session):
 # --- Duplicate Folder URL Detection ---
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_duplicate_folder_url_shows_warning(mock_mb, mock_worker, client, db_session):
-    mock_mb.start = MagicMock()
+def test_duplicate_folder_url_shows_warning(mock_worker, client, db_session):
     dl = Download(title="Existing Show", media_type="tv", status="complete")
     dl.files.append(DownloadFile(url="https://mega.nz/folder/abc#key", status="finished"))
     db_session.add(dl)
@@ -395,9 +387,7 @@ def test_duplicate_folder_url_shows_warning(mock_mb, mock_worker, client, db_ses
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_duplicate_folder_url_confirm_adds_anyway(mock_mb, mock_worker, client, db_session):
-    mock_mb.start = MagicMock()
+def test_duplicate_folder_url_confirm_adds_anyway(mock_worker, client, db_session):
     dl = Download(title="Existing Show", media_type="tv", status="complete")
     dl.files.append(DownloadFile(url="https://mega.nz/folder/abc#key", status="finished"))
     db_session.add(dl)
@@ -413,9 +403,7 @@ def test_duplicate_folder_url_confirm_adds_anyway(mock_mb, mock_worker, client, 
 
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_non_folder_url_no_duplicate_check(mock_mb, mock_worker, client, db_session):
-    mock_mb.start = MagicMock()
+def test_non_folder_url_no_duplicate_check(mock_worker, client, db_session):
     dl = Download(title="Existing Movie", media_type="movie", status="complete")
     dl.files.append(DownloadFile(url="https://mega.nz/file/abc#key", status="finished"))
     db_session.add(dl)
@@ -432,8 +420,8 @@ def test_non_folder_url_no_duplicate_check(mock_mb, mock_worker, client, db_sess
 # --- Recheck Route ---
 
 @patch("megaqueue.app.start_worker")
-@patch("megaqueue.app.mb_client")
-def test_recheck_route_calls_recheck_folder(mock_mb, mock_worker, client, db_session):
+@patch("megaqueue.app.mega_manager")
+def test_recheck_route_calls_recheck_folder(mock_manager, mock_worker, client, db_session):
     dl = Download(title="Show", media_type="tv", status="complete")
     folder_df = DownloadFile(url="https://mega.nz/folder/abc#key", status="finished")
     dl.files.append(folder_df)

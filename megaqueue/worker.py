@@ -5,52 +5,50 @@ import threading
 import time
 
 from megaqueue import config, sync
-from megaqueue.megabasterd_client import MegabasterdClient
+from megaqueue.mega_downloader import MegaDownloadManager
 from megaqueue.models import db_session
 
 log = logging.getLogger(__name__)
 
 
-def _poll_once(client):
-    """Single poll tick: submit pending, fetch megabasterd status, sync DB, sweep."""
-    sync.submit_pending(client)
+def _poll_once(manager):
+    """Single poll tick: submit pending, fetch status, sync DB, sweep."""
+    sync.submit_pending(manager)
 
     try:
-        status = client.status()
+        status = manager.status()
     except Exception as e:
-        log.warning("Failed to poll megabasterd status: %s", e)
+        log.warning("Failed to poll download status: %s", e)
         return
 
-    mb_downloads = status.get("downloads", [])
+    downloads = status.get("downloads", [])
 
-    matched_file_ids = sync.sync_active(client, mb_downloads)
+    matched_file_ids = sync.sync_active(manager, downloads)
     sync.integrity_sweep(matched_file_ids)
 
 
-def _worker_loop(client):
-    """Main worker loop — polls megabasterd on an interval."""
+def _worker_loop(manager):
+    """Main worker loop — polls download manager on an interval."""
     while True:
         try:
-            _poll_once(client)
+            _poll_once(manager)
         except Exception as e:
             log.error("Worker poll error: %s", e)
         finally:
             db_session.remove()
-        time.sleep(config.MEGABASTERD_POLL_INTERVAL)
+        time.sleep(config.POLL_INTERVAL)
 
 
 def start_worker():
     """Start the background download worker thread."""
-    client = MegabasterdClient()
+    manager = MegaDownloadManager(
+        dest_dir=config.DOWNLOAD_DIR,
+        workers=config.DOWNLOAD_WORKERS,
+        proxy_file=config.PROXY_FILE,
+    )
+    manager.start_loop()
+    log.info("Download manager started (workers=%d)", config.DOWNLOAD_WORKERS)
 
-    if not client.is_reachable():
-        log.error(
-            "Megabasterd API not reachable at %s — is megabasterd running with the API enabled?",
-            config.MEGABASTERD_API_URL,
-        )
-    else:
-        log.info("Megabasterd API connected at %s", config.MEGABASTERD_API_URL)
-
-    thread = threading.Thread(target=_worker_loop, args=(client,), daemon=True)
+    thread = threading.Thread(target=_worker_loop, args=(manager,), daemon=True)
     thread.start()
     return thread

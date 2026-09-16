@@ -1,4 +1,4 @@
-"""megabasterd ↔ DB sync: match status entries to records, expand folders, update per-file state."""
+"""Download engine ↔ DB sync: match status entries to records, expand folders, update per-file state."""
 
 import logging
 from datetime import datetime
@@ -12,19 +12,18 @@ from megaqueue.notifications import notify_failure, notify_needs_review
 log = logging.getLogger(__name__)
 
 
-def match_megabasterd_files(mb_downloads, download_files):
-    """Match megabasterd entries to DownloadFile records.
+def match_download_files(mega_downloads, download_files):
+    """Match download engine entries to DownloadFile records.
 
     Uses three-tier matching:
     1. Direct URL match (for single file downloads)
-    2. sourceUrl match (for folder-split entries — megabasterd returns the
-       original folder URL as sourceUrl on each per-file entry)
+    2. sourceUrl match (for folder-split entries)
     3. Folder-ID match: extract ###n={folderId} from per-file URL, match against
        DownloadFile records whose URL is a recognised folder URL with the same
        folder ID (new or old format).
 
-    Returns dict: DownloadFile.id -> list[megabasterd entry].
-    A single DownloadFile may match multiple megabasterd entries (folder splits).
+    Returns dict: DownloadFile.id -> list[download entry].
+    A single DownloadFile may match multiple entries (folder splits).
     """
     file_by_norm = {}
     file_by_url = {}
@@ -38,24 +37,24 @@ def match_megabasterd_files(mb_downloads, download_files):
 
     matched = {}
 
-    for mb_dl in mb_downloads:
-        norm = normalize(mb_dl.get("url", ""))
+    for dl_entry in mega_downloads:
+        norm = normalize(dl_entry.get("url", ""))
         df = file_by_norm.get(norm)
 
         if df is None:
-            source_url = mb_dl.get("sourceUrl", "")
+            source_url = dl_entry.get("sourceUrl", "")
             if source_url:
                 df = file_by_url.get(source_url)
                 if df is None:
                     df = file_by_norm.get(normalize(source_url))
 
         if df is None:
-            folder_id = extract_folder_id(mb_dl.get("url", ""))
+            folder_id = extract_folder_id(dl_entry.get("url", ""))
             if folder_id:
                 df = file_by_folder_id.get(folder_id)
 
         if df is not None:
-            matched.setdefault(df.id, []).append(mb_dl)
+            matched.setdefault(df.id, []).append(dl_entry)
 
     return matched
 
@@ -63,8 +62,8 @@ def match_megabasterd_files(mb_downloads, download_files):
 def maybe_expand_folder_files(download, initial_matches):
     """Expand folder-URL DownloadFiles into per-file child records.
 
-    When a folder URL DownloadFile matches multiple megabasterd entries (folder split)
-    and has no existing children, creates one child DownloadFile per megabasterd entry.
+    When a folder URL DownloadFile matches multiple download entries (folder split)
+    and has no existing children, creates one child DownloadFile per entry.
     The children track individual file progress; the parent becomes a container.
 
     Idempotent: skips files that already have children.
@@ -72,19 +71,19 @@ def maybe_expand_folder_files(download, initial_matches):
     for df in list(download.top_level_files):
         if df.children:
             continue
-        mb_entries = initial_matches.get(df.id, [])
-        mb_entries = [e for e in mb_entries if e.get("status") != "Pending"]
-        if not mb_entries:
+        entries = initial_matches.get(df.id, [])
+        entries = [e for e in entries if e.get("status") != "Pending"]
+        if not entries:
             continue
         if not is_folder_url(df.url):
             continue
 
-        for mb_dl in mb_entries:
+        for dl_entry in entries:
             child = DownloadFile(
                 download_id=download.id,
                 parent_id=df.id,
-                url=mb_dl.get("url", ""),
-                name=mb_dl.get("name"),
+                url=dl_entry.get("url", ""),
+                name=dl_entry.get("name"),
                 status=FileStatus.QUEUED,
                 progress_bytes=0,
                 total_bytes=0,
@@ -92,11 +91,11 @@ def maybe_expand_folder_files(download, initial_matches):
             )
             db_session.add(child)
 
-        log.info("Expanded folder into %d files", len(mb_entries))
+        log.info("Expanded folder into %d files", len(entries))
 
 
-def update_file_from_megabasterd(df, mb_entries):
-    """Update a DownloadFile's progress and status from one or more megabasterd entries."""
+def update_file_progress(df, dl_entries):
+    """Update a DownloadFile's progress and status from one or more download entries."""
     total_progress = 0
     total_size = 0
     total_speed = 0
@@ -104,39 +103,33 @@ def update_file_from_megabasterd(df, mb_entries):
     any_error = False
     any_downloading = False
     error_message = None
-    bandwidth_message = None
 
-    for mb_dl in mb_entries:
-        total_progress += mb_dl.get("bytesLoaded", 0)
-        total_size += mb_dl.get("bytesTotal", 0)
-        total_speed += mb_dl.get("speed", 0)
+    for dl_entry in dl_entries:
+        total_progress += dl_entry.get("bytesLoaded", 0)
+        total_size += dl_entry.get("bytesTotal", 0)
+        total_speed += dl_entry.get("speed", 0)
 
-        mb_status = mb_dl.get("status", "")
+        entry_status = dl_entry.get("status", "")
 
-        if mb_dl.get("finished"):
+        if dl_entry.get("finished"):
             pass
-        elif "checking file integrity" in mb_status.lower():
+        elif "checking file integrity" in entry_status.lower():
             pass
         else:
             all_finished = False
 
-        if mb_status == "Error":
+        if entry_status == "Error":
             any_error = True
-            error_message = mb_dl.get("error") or "Unknown megabasterd error"
-        elif mb_status == "509 Bandwidth Limit Exceeded":
-            bandwidth_message = (
-                f"509 Bandwidth Limit — {mb_dl.get('error509Count', 0)} workers affected. "
-                "Use 'Clear 509' to retry with fresh proxies."
-            )
-        if mb_dl.get("bytesLoaded", 0) > 0:
+            error_message = dl_entry.get("error") or "Download error"
+        if dl_entry.get("bytesLoaded", 0) > 0:
             any_downloading = True
 
     df.progress_bytes = total_progress
     df.total_bytes = total_size
     df.speed = total_speed
 
-    if len(mb_entries) == 1:
-        df.name = mb_entries[0].get("name") or df.name
+    if len(dl_entries) == 1:
+        df.name = dl_entries[0].get("name") or df.name
 
     if all_finished:
         df.status = FileStatus.FINISHED
@@ -145,14 +138,12 @@ def update_file_from_megabasterd(df, mb_entries):
     elif any_error:
         df.status = FileStatus.FAILED
         df.error_message = error_message
-    elif bandwidth_message:
-        df.error_message = bandwidth_message
     elif any_downloading and df.status == FileStatus.QUEUED:
         df.status = FileStatus.DOWNLOADING
 
 
-def submit_pending(client):
-    """Submit queued downloads that haven't been sent to megabasterd yet."""
+def submit_pending(manager):
+    """Submit queued downloads that haven't been sent to the download engine yet."""
     pending = db_session.query(Download).filter(
         Download.status == DownloadStatus.QUEUED,
         Download.downloading_since.is_(None),
@@ -161,20 +152,20 @@ def submit_pending(client):
     for download in pending:
         try:
             links = download.links
-            log.info("Submitting '%s' to megabasterd (%d links)", download.title, len(links))
-            client.start(links)
+            log.info("Submitting '%s' (%d links)", download.title, len(links))
+            manager.start(links)
             download.downloading_since = datetime.utcnow()
             db_session.commit()
-            log.info("Submitted '%s' to megabasterd", download.title)
+            log.info("Submitted '%s' for download", download.title)
         except Exception as e:
-            log.error("Failed to submit '%s' to megabasterd: %s", download.title, e)
+            log.error("Failed to submit '%s': %s", download.title, e)
             download.status = DownloadStatus.FAILED
-            download.error_message = f"Failed to submit to megabasterd: {e}"
+            download.error_message = f"Failed to submit download: {e}"
             db_session.commit()
 
 
-def sync_active(client, mb_downloads):
-    """Match megabasterd downloads to DB records and update state.
+def sync_active(manager, mega_downloads):
+    """Match download entries to DB records and update state.
 
     Returns the set of matched DownloadFile.ids for the integrity sweep.
     """
@@ -194,31 +185,26 @@ def sync_active(client, mb_downloads):
         if download.status == DownloadStatus.CANCELLED:
             continue
 
-        # Recovery: a download stuck in PROCESSING means post-processing never
-        # completed (e.g. the resolve route flipped it to PROCESSING but no tick
-        # ran the organiser, or the process was killed mid-organise). Re-run.
-        # post_process always exits PROCESSING (to COMPLETE or FAILED), so this
-        # cannot loop.
         if download.status == DownloadStatus.PROCESSING:
             log.info("Picking up stuck PROCESSING download '%s' — running post_process", download.title)
-            lifecycle.post_process(download, client)
+            lifecycle.post_process(download, manager)
             continue
 
-        initial_matches = match_megabasterd_files(mb_downloads, download.top_level_files)
+        initial_matches = match_download_files(mega_downloads, download.top_level_files)
 
         maybe_expand_folder_files(download, initial_matches)
         db_session.flush()
         db_session.refresh(download)
 
-        file_matches = match_megabasterd_files(mb_downloads, download.leaf_files)
+        file_matches = match_download_files(mega_downloads, download.leaf_files)
         matched_file_ids.update(file_matches.keys())
 
         for df in download.leaf_files:
-            mb_entries = file_matches.get(df.id)
-            if mb_entries is not None:
-                active_entries = [e for e in mb_entries if e.get("status") != "Pending"]
+            dl_entries = file_matches.get(df.id)
+            if dl_entries is not None:
+                active_entries = [e for e in dl_entries if e.get("status") != "Pending"]
                 if active_entries:
-                    update_file_from_megabasterd(df, active_entries)
+                    update_file_progress(df, active_entries)
 
         # Refresh metadata every tick. The function is idempotent: it short-
         # circuits when no leaf has a name yet, and respects metadata_source=USER.
@@ -236,7 +222,7 @@ def sync_active(client, mb_downloads):
             log.info("All files finished for '%s', post-processing", download.title)
             download.status = DownloadStatus.PROCESSING
             db_session.commit()
-            lifecycle.post_process(download, client)
+            lifecycle.post_process(download, manager)
             continue
 
         if new_status == DownloadStatus.NEEDS_REVIEW and download.status != DownloadStatus.NEEDS_REVIEW:
@@ -259,10 +245,10 @@ def sync_active(client, mb_downloads):
     return matched_file_ids
 
 
-def recheck_folder(download, client):
+def recheck_folder(download, manager):
     """Re-check a completed folder download for new files.
 
-    Queries megabasterd for the current folder contents, diffs by filename
+    Queries the download engine for the current folder contents, diffs by filename
     against existing leaf files, and creates new child DownloadFile records
     for any files not already present. Returns the count of new files added.
     """
@@ -273,7 +259,7 @@ def recheck_folder(download, client):
             continue
 
         try:
-            folder_files = client.folder_list(tf.url)
+            folder_files = manager.folder_list(tf.url)
         except Exception as e:
             log.error("Failed to list folder '%s': %s", tf.url, e)
             continue
@@ -307,9 +293,9 @@ def recheck_folder(download, client):
         ]
         if new_urls:
             try:
-                client.start(new_urls)
+                manager.start(new_urls)
             except Exception as e:
-                log.error("Failed to submit re-checked files to megabasterd: %s", e)
+                log.error("Failed to submit re-checked files: %s", e)
         download.status = DownloadStatus.DOWNLOADING
         download.downloading_since = datetime.utcnow()
         db_session.commit()
@@ -321,7 +307,7 @@ def recheck_folder(download, client):
 
 
 def integrity_sweep(matched_file_ids):
-    """Fail any queued/downloading leaf records that have gone missing from megabasterd."""
+    """Fail any queued/downloading leaf records that have gone missing from the download engine."""
     active = db_session.query(Download).filter(
         Download.status.in_((DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING))
     ).all()
@@ -344,19 +330,19 @@ def integrity_sweep(matched_file_ids):
             continue
 
         age = (now - download.downloading_since).total_seconds()
-        if age < config.MEGABASTERD_GRACE_PERIOD:
+        if age < config.GRACE_PERIOD:
             continue
 
         for df in unmatched_files:
-            log.warning("File '%s' not found in megabasterd after %ds",
+            log.warning("File '%s' not found in download engine after %ds",
                         df.name or df.url, int(age))
             df.status = FileStatus.FAILED
-            df.error_message = "Disappeared from megabasterd"
+            df.error_message = "Disappeared from download engine"
 
         new_status = lifecycle.derive_download_status(download)
         if new_status == DownloadStatus.FAILED:
             download.status = DownloadStatus.FAILED
-            download.error_message = "Download disappeared from megabasterd"
+            download.error_message = "Download disappeared from download engine"
             notify_failure(download)
 
         db_session.commit()

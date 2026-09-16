@@ -156,7 +156,7 @@ def test_leaf_files_falls_back_to_direct_files_before_expansion(db_session):
 
 
 def test_links_returns_only_top_level_urls(db_session):
-    """links property excludes child URLs (per-file from megabasterd folder splits)."""
+    """links property excludes child URLs (per-file from folder splits)."""
     dl = Download(title="Show", media_type="tv")
     folder_df = DownloadFile(url="https://mega.nz/folder/abc#key")
     dl.files.append(folder_df)

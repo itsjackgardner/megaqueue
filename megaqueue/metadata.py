@@ -153,8 +153,8 @@ def refresh(download):
       - Otherwise: writes the aggregated title/year/media_type and the
         scored confidence, with metadata_source = GUESSIT.
 
-    Does NOT commit. The caller (sync.update_file_from_megabasterd) is
-    responsible for committing in its own transaction.
+    Does NOT commit. The caller (sync_active) is responsible for
+    committing in its own transaction.
     """
     leaf_files = [df for df in download.leaf_files if df.name]
     if not leaf_files:

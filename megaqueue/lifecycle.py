@@ -53,7 +53,7 @@ def resolve_source_paths(download):
     """
     from megaqueue.organiser import ARCHIVE_EXTENSIONS, _has_media_files
 
-    download_dir = Path(config.MEGABASTERD_DOWNLOAD_DIR)
+    download_dir = Path(config.DOWNLOAD_DIR)
     leaf_files = []
     source_paths = []
     pre_extracted = []
@@ -100,55 +100,22 @@ def resolve_source_paths(download):
     return leaf_files, source_paths, pre_extracted
 
 
-def _stop_megabasterd_entries(download, client):
-    """Try to clear this download from megabasterd so it releases file handles.
-
-    First tries stopping by each DownloadFile URL. If any return 404 (URL
-    mismatch — common with folder downloads), falls back to matching by
-    filename against megabasterd's /status response and stopping those.
-    """
-    stopped_urls = set()
-    had_miss = False
-
+def _cancel_active_downloads(download, manager):
+    """Cancel active downloads and remove entries from the download manager."""
     for df in download.files:
-        if df.url and df.url not in stopped_urls:
+        if df.url:
             try:
-                result = client.stop(df.url, delete=False)
-                stopped_urls.add(df.url)
-                if result is None:
-                    had_miss = True
+                manager.cancel(df.url)
+                manager.remove(df.url)
             except Exception:
-                had_miss = True
-
-    if not had_miss:
-        return
-
-    leaf_names = {df.name for df in download.leaf_files if df.name}
-    if not leaf_names:
-        return
-
-    try:
-        status = client.status()
-        mb_downloads = status.get("downloads", []) if isinstance(status, dict) else []
-        for mb_dl in mb_downloads:
-            mb_name = mb_dl.get("name", "")
-            mb_url = mb_dl.get("url", "")
-            if mb_name in leaf_names and mb_url not in stopped_urls:
-                try:
-                    client.stop(mb_url, delete=False)
-                    stopped_urls.add(mb_url)
-                    log.info("Stopped megabasterd entry by name match: '%s'", mb_name)
-                except Exception:
-                    pass
-    except Exception:
-        log.debug("Could not fetch megabasterd status for name-based stop fallback")
+                pass
 
 
-def post_process(download, client):
-    """Organize files, send notification, and clear from megabasterd."""
+def post_process(download, manager):
+    """Organize files, send notification, and clean up download entries."""
     log.info("Post-processing started for '%s'", download.title)
 
-    _stop_megabasterd_entries(download, client)
+    _cancel_active_downloads(download, manager)
 
     try:
         pending_leaves, source_paths, pre_extracted = resolve_source_paths(download)

@@ -5,11 +5,10 @@ os.environ.update({
     "MEGAQUEUE_SECRET_KEY": "test-secret-key",
     "MEGAQUEUE_PLEX_MOVIES_DIR": "/tmp/test-plex-movies",
     "MEGAQUEUE_PLEX_TV_DIR": "/tmp/test-plex-tv",
-    "MEGAQUEUE_MEGABASTERD_DOWNLOAD_DIR": "/tmp/test-downloads",
+    "MEGAQUEUE_DOWNLOAD_DIR": "/tmp/test-downloads",
     "MEGAQUEUE_NTFY_TOPIC": "test-topic",
     "MEGAQUEUE_DATABASE_URL": "sqlite:///:memory:",
-    "MEGAQUEUE_MEGABASTERD_API_URL": "http://localhost:9999",
-    "MEGAQUEUE_MEGABASTERD_GRACE_PERIOD": "30",
+    "MEGAQUEUE_GRACE_PERIOD": "30",
 })
 
 import pytest

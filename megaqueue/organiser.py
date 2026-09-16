@@ -28,10 +28,8 @@ MEDIA_EXTENSIONS = {
     ".srt", ".sub", ".idx", ".ass", ".ssa",
 }
 
-# Windows can briefly refuse a move (WinError 32) while megabasterd releases its
-# handle, or while Plex/antivirus scans the new file. Retry before giving up.
-MOVE_RETRIES = 6
-MOVE_RETRY_BASE_DELAY = 2  # seconds; doubles each attempt (2, 4, 8, 16, 32)
+MOVE_RETRIES = 3
+MOVE_RETRY_BASE_DELAY = 2
 
 
 def _is_archive(path):
@@ -138,12 +136,7 @@ def _route(file_path, download, leaf_file):
 
 
 def _move(src, dest):
-    """Move src to dest, creating parent dirs and returning dest as a string.
-
-    Retries on transient OS-level file locks (notably Windows WinError 32):
-    even after megabasterd is told to release the download, the handle, the
-    Plex scanner, or antivirus can briefly keep the file open.
-    """
+    """Move src to dest, creating parent dirs and returning dest as a string."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     last_err = None
     for attempt in range(1, MOVE_RETRIES + 1):

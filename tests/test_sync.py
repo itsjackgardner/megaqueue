@@ -7,10 +7,10 @@ import pytest
 from megaqueue.enums import DownloadStatus, FileStatus, MetadataConfidence
 from megaqueue.models import Download, DownloadFile
 from megaqueue.sync import (
-    match_megabasterd_files,
+    match_download_files,
     maybe_expand_folder_files,
     recheck_folder,
-    update_file_from_megabasterd,
+    update_file_progress,
     submit_pending,
     sync_active,
     integrity_sweep,
@@ -27,7 +27,7 @@ def test_match_direct_url(db_session):
     db_session.commit()
 
     mb_downloads = [{"url": "https://mega.nz/file/abc123#key1", "name": "file.mkv"}]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
     assert len(matched[df.id]) == 1
@@ -41,7 +41,7 @@ def test_match_old_to_new_format(db_session):
     db_session.commit()
 
     mb_downloads = [{"url": "https://mega.nz/file/abc123#key1", "name": "file.mkv"}]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
 
@@ -58,7 +58,7 @@ def test_match_by_source_url(db_session):
         {"url": "https://mega.nz/file/split1#k1", "sourceUrl": "https://mega.nz/file/folder1#folderkey", "name": "part1"},
         {"url": "https://mega.nz/file/split2#k2", "sourceUrl": "https://mega.nz/file/folder1#folderkey", "name": "part2"},
     ]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
     assert len(matched[df.id]) == 2
@@ -78,7 +78,7 @@ def test_match_folder_url_via_folder_id(db_session):
          "bytesLoaded": 0, "bytesTotal": 1000, "speed": 0, "finished": False, "status": "Downloading"}
         for i in range(1, 9)
     ]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
     assert len(matched[df.id]) == 8
@@ -95,7 +95,7 @@ def test_match_tier1_unaffected_by_tier3(db_session):
     mb_downloads = [{"url": "https://mega.nz/file/abc123#key1", "name": "movie.mkv",
                      "bytesLoaded": 500, "bytesTotal": 1000, "speed": 100,
                      "finished": False, "status": "Downloading"}]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
     assert len(matched[df.id]) == 1
@@ -109,7 +109,7 @@ def test_match_no_match(db_session):
     db_session.commit()
 
     mb_downloads = [{"url": "https://mega.nz/file/xyz#other", "name": "unrelated"}]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id not in matched
 
@@ -130,13 +130,13 @@ def test_match_by_source_url_folder(db_session):
          "sourceUrl": folder_url, "name": f"ep0{i}.mkv"}
         for i in range(1, 4)
     ]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
     assert len(matched[df.id]) == 3
 
 
-# --- Update File From Megabasterd ---
+# --- Update File Progress ---
 
 def test_update_file_progress(db_session):
     df = DownloadFile(url="u1", status=FileStatus.QUEUED)
@@ -145,7 +145,7 @@ def test_update_file_progress(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    update_file_from_megabasterd(df, [
+    update_file_progress(df, [
         {"bytesLoaded": 500, "bytesTotal": 1000, "speed": 100, "finished": False, "status": "Downloading"}
     ])
 
@@ -162,7 +162,7 @@ def test_update_file_finished(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    update_file_from_megabasterd(df, [
+    update_file_progress(df, [
         {"bytesLoaded": 1000, "bytesTotal": 1000, "speed": 0, "finished": True, "status": "OK", "name": "movie.mkv"}
     ])
 
@@ -178,28 +178,12 @@ def test_update_file_error(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    update_file_from_megabasterd(df, [
+    update_file_progress(df, [
         {"bytesLoaded": 100, "bytesTotal": 1000, "speed": 0, "finished": False, "status": "Error", "error": "Checksum failed"}
     ])
 
     assert df.status == FileStatus.FAILED
     assert df.error_message == "Checksum failed"
-
-
-def test_update_file_509_bandwidth(db_session):
-    df = DownloadFile(url="u1", status=FileStatus.DOWNLOADING)
-    dl = Download(title="Test", media_type="movie")
-    dl.files.append(df)
-    db_session.add(dl)
-    db_session.commit()
-
-    update_file_from_megabasterd(df, [
-        {"bytesLoaded": 100, "bytesTotal": 1000, "speed": 0, "finished": False,
-         "status": "509 Bandwidth Limit Exceeded", "error509Count": 3}
-    ])
-
-    assert "509" in df.error_message
-    assert "3 workers" in df.error_message
 
 
 def test_update_multi_entry_aggregation(db_session):
@@ -210,7 +194,7 @@ def test_update_multi_entry_aggregation(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    update_file_from_megabasterd(df, [
+    update_file_progress(df, [
         {"bytesLoaded": 200, "bytesTotal": 500, "speed": 50, "finished": False, "status": "Downloading"},
         {"bytesLoaded": 300, "bytesTotal": 500, "speed": 75, "finished": False, "status": "Downloading"},
     ])
@@ -238,12 +222,11 @@ def test_sync_transitions_to_downloading(mock_fb, mock_notify_ok, mock_notify_fa
          "finished": False, "status": "Downloading"}
     ]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.DOWNLOADING
-    # And guessit resolved metadata on this same tick.
     assert dl.title == "Inception"
     assert dl.year == 2010
 
@@ -272,8 +255,8 @@ def test_sync_triggers_post_processing(mock_fb, mock_notify_ok, mock_notify_fail
          "finished": True, "status": "OK"}
     ]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.COMPLETE
@@ -300,8 +283,8 @@ def test_sync_routes_low_confidence_to_needs_review(mock_fb, mock_ok, mock_fail,
          "finished": True, "status": "OK"}
     ]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.NEEDS_REVIEW
@@ -320,8 +303,8 @@ def test_sync_does_not_repost_process_an_in_review_download(mock_fb, db_session)
     db_session.add(dl)
     db_session.commit()
 
-    client = MagicMock()
-    sync_active(client, [])
+    manager = MagicMock()
+    sync_active(manager, [])
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.NEEDS_REVIEW
@@ -330,10 +313,10 @@ def test_sync_does_not_repost_process_an_in_review_download(mock_fb, db_session)
 
 @patch("megaqueue.lifecycle.organiser")
 def test_sync_single_file_folder_resolves_metadata_during_download(mock_fb, db_session):
-    """Regression: a folder URL that megabasterd splits into a single per-file entry.
+    """Regression: a folder URL that splits into a single per-file entry.
     The expansion populates child.name immediately. metadata.refresh MUST still run
     so a good filename (with year + quality tags) lands HIGH confidence — not
-    NEEDS_REVIEW. This was the Throne of Blood failure."""
+    NEEDS_REVIEW."""
     folder_url = "https://mega.nz/folder/abc#key"
     dl = Download(status=DownloadStatus.QUEUED, metadata_confidence=MetadataConfidence.LOW)
     dl.files.append(DownloadFile(url=folder_url, status=FileStatus.QUEUED))
@@ -353,8 +336,8 @@ def test_sync_single_file_folder_resolves_metadata_during_download(mock_fb, db_s
         }
     ]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.DOWNLOADING, (
@@ -393,8 +376,8 @@ def test_sync_low_confidence_folder_enters_needs_review_before_completion(
         }
     ]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.NEEDS_REVIEW
@@ -420,8 +403,8 @@ def test_sync_recovers_stuck_processing_download(mock_fb, mock_resolve, db_sessi
     db_session.add(dl)
     db_session.commit()
 
-    client = MagicMock()
-    sync_active(client, [])
+    manager = MagicMock()
+    sync_active(manager, [])
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.COMPLETE
@@ -594,11 +577,11 @@ def test_submit_pending_stamps_downloading_since(db_session):
 
     assert dl.downloading_since is None
 
-    client = MagicMock()
-    submit_pending(client)
+    manager = MagicMock()
+    submit_pending(manager)
 
     db_session.refresh(dl)
-    client.start.assert_called_once()
+    manager.start.assert_called_once()
     assert dl.downloading_since is not None
     assert dl.status == DownloadStatus.QUEUED
 
@@ -609,9 +592,9 @@ def test_submit_pending_failure_marks_failed(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    client = MagicMock()
-    client.start.side_effect = ConnectionError("Connection refused")
-    submit_pending(client)
+    manager = MagicMock()
+    manager.start.side_effect = ConnectionError("Connection refused")
+    submit_pending(manager)
 
     db_session.refresh(dl)
     assert dl.status == DownloadStatus.FAILED
@@ -627,10 +610,10 @@ def test_submit_pending_skips_already_submitted(db_session):
     db_session.add(dl)
     db_session.commit()
 
-    client = MagicMock()
-    submit_pending(client)
+    manager = MagicMock()
+    submit_pending(manager)
 
-    client.start.assert_not_called()
+    manager.start.assert_not_called()
 
 
 # --- Pending Entry Matching ---
@@ -653,7 +636,7 @@ def test_pending_entry_matches_and_prevents_sweep(db_session):
         "bytesTotal": 0,
         "speed": 0,
     }]
-    matched = match_megabasterd_files(mb_downloads, dl.files)
+    matched = match_download_files(mb_downloads, dl.files)
 
     assert df.id in matched
 
@@ -681,8 +664,8 @@ def test_pending_entry_does_not_advance_status(mock_fb, mock_ok, mock_fail, db_s
         "speed": 0,
     }]
 
-    client = MagicMock()
-    sync_active(client, mb_downloads)
+    manager = MagicMock()
+    sync_active(manager, mb_downloads)
 
     db_session.refresh(dl)
     assert dl.files[0].status == FileStatus.QUEUED
@@ -692,7 +675,7 @@ def test_pending_entry_does_not_advance_status(mock_fb, mock_ok, mock_fail, db_s
 # --- Folder Re-check ---
 
 def test_recheck_folder_adds_new_files(db_session):
-    """Re-check detects new files, creates child records, and submits to megabasterd."""
+    """Re-check detects new files, creates child records, and submits for download."""
     folder_url = "https://mega.nz/folder/abc#key"
     dl = Download(title="Show", media_type="tv", status=DownloadStatus.COMPLETE)
     folder_df = DownloadFile(url=folder_url, status=FileStatus.FINISHED)
@@ -709,20 +692,20 @@ def test_recheck_folder_adds_new_files(db_session):
     db_session.commit()
     db_session.refresh(dl)
 
-    client = MagicMock()
-    client.folder_list.return_value = [
+    manager = MagicMock()
+    manager.folder_list.return_value = [
         {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 1000},
         {"name": "ep02.mkv", "url": "https://mega.nz/#N!id2!k2###n=abc", "size": 2000},
         {"name": "ep03.mkv", "url": "https://mega.nz/#N!id3!k3###n=abc", "size": 2000},
     ]
 
-    new_count = recheck_folder(dl, client)
+    new_count = recheck_folder(dl, manager)
 
     assert new_count == 2
     assert dl.status == DownloadStatus.DOWNLOADING
     assert dl.downloading_since is not None
-    client.start.assert_called_once()
-    started_urls = client.start.call_args[0][0]
+    manager.start.assert_called_once()
+    started_urls = manager.start.call_args[0][0]
     assert len(started_urls) == 2
 
     db_session.refresh(dl)
@@ -749,16 +732,16 @@ def test_recheck_folder_no_new_files(db_session):
     db_session.commit()
     db_session.refresh(dl)
 
-    client = MagicMock()
-    client.folder_list.return_value = [
+    manager = MagicMock()
+    manager.folder_list.return_value = [
         {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 1000},
     ]
 
-    new_count = recheck_folder(dl, client)
+    new_count = recheck_folder(dl, manager)
 
     assert new_count == 0
     assert dl.status == DownloadStatus.COMPLETE
-    client.start.assert_not_called()
+    manager.start.assert_not_called()
 
 
 def test_recheck_folder_preserves_existing_file_state(db_session):
@@ -781,13 +764,13 @@ def test_recheck_folder_preserves_existing_file_state(db_session):
     child_id = existing_child.id
     db_session.refresh(dl)
 
-    client = MagicMock()
-    client.folder_list.return_value = [
+    manager = MagicMock()
+    manager.folder_list.return_value = [
         {"name": "ep01.mkv", "url": "https://mega.nz/#N!id1!k1###n=abc", "size": 5000},
         {"name": "ep02.mkv", "url": "https://mega.nz/#N!id2!k2###n=abc", "size": 3000},
     ]
 
-    recheck_folder(dl, client)
+    recheck_folder(dl, manager)
 
     existing = db_session.get(DownloadFile, child_id)
     assert existing.status == FileStatus.FINISHED

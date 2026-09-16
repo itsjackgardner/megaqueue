@@ -103,12 +103,6 @@
           <button class="text-xs text-[#6E7790] hover:text-[#C8CDD8] px-1.5 py-0.5">Cancel</button>
         </form>
         {% endif %}
-        {% if dl.error_message and '509' in dl.error_message %}
-        <form method="POST" action="/download/{{ dl.id }}/clear509" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <button class="text-xs text-[#C9B458] hover:text-[#E8B86D] px-1.5 py-0.5">Clear 509</button>
-        </form>
-        {% endif %}
         {% if dl.status not in ('downloading',) %}
         <form method="POST" action="/download/{{ dl.id }}/delete" class="inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

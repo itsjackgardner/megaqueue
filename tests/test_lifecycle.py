@@ -126,7 +126,7 @@ def test_resolve_source_paths_from_leaf_names(db_session, tmp_path):
     (tmp_path / "movie.mkv").touch()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 1
@@ -156,7 +156,7 @@ def test_resolve_source_paths_uses_children_for_folder(db_session, tmp_path):
     (tmp_path / "ep02.mkv").touch()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 2
@@ -173,7 +173,7 @@ def test_resolve_source_paths_raises_when_name_missing(db_session, tmp_path):
     db_session.commit()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(ValueError, match="name not set"):
             resolve_source_paths(dl)
 
@@ -193,7 +193,7 @@ def test_resolve_source_paths_fallback_to_pre_extracted_dir(db_session, tmp_path
     (extracted_dir / "The Waterboy (1998).mkv").touch()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(paths) == 1
@@ -209,7 +209,7 @@ def test_resolve_source_paths_no_fallback_for_non_archive(db_session, tmp_path):
     db_session.commit()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(FileNotFoundError, match="Source file not found"):
             resolve_source_paths(dl)
 
@@ -226,7 +226,7 @@ def test_resolve_source_paths_fallback_rejects_no_media_dir(db_session, tmp_path
     (extracted_dir / "readme.txt").touch()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(FileNotFoundError, match="contains no media files"):
             resolve_source_paths(dl)
 
@@ -239,7 +239,7 @@ def test_resolve_source_paths_fallback_no_dir_exists(db_session, tmp_path):
     db_session.commit()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         with pytest.raises(FileNotFoundError, match="also checked for pre-extracted"):
             resolve_source_paths(dl)
 
@@ -274,7 +274,7 @@ def test_resolve_source_paths_skips_already_organised(db_session, tmp_path):
     (tmp_path / "ep02.mkv").touch()
 
     with patch("megaqueue.lifecycle.config") as mock_config:
-        mock_config.MEGABASTERD_DOWNLOAD_DIR = str(tmp_path)
+        mock_config.DOWNLOAD_DIR = str(tmp_path)
         leaves, paths, pre_extracted = resolve_source_paths(dl)
 
     assert len(leaves) == 1
