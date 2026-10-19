@@ -53,7 +53,7 @@ Two SQLAlchemy models:
 
 ### Configuration
 
-All config via `MEGAQUEUE_*` environment variables. Required at startup: `SECRET_KEY`, `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, `NTFY_TOPIC`, `DOWNLOAD_DIR`. Defaults: `POLL_INTERVAL=5`, `GRACE_PERIOD=30`, `DOWNLOAD_WORKERS=8`. Optional: `PROXY_FILE`. `unrar` must be on PATH at runtime if any download contains a `.rar` archive.
+All config via `MEGAQUEUE_*` environment variables. Required at startup: `SECRET_KEY`, `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, `NTFY_TOPIC`, `DOWNLOAD_DIR`. Defaults: `POLL_INTERVAL=5`, `GRACE_PERIOD=30`, `DOWNLOAD_WORKERS=8`. Optional: `PROXY_URL` (HTTP(S) URL to a plain-text proxy list, fetched periodically), `PROXY_REFRESH_INTERVAL` (seconds between proxy list refreshes, default 300). `unrar` must be on PATH at runtime if any download contains a `.rar` archive.
 
 ## Running
 

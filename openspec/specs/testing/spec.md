@@ -116,19 +116,19 @@ Tests SHALL verify HTTP responses for key routes: dashboard (`GET /`), add downl
 - **WHEN** a GET request is made to `/api/status`
 - **THEN** the response is JSON with download status information
 
-### Requirement: Claude agent testing instructions
-A `megaqueue/CLAUDE.md` file SHALL document the testing workflow for Claude agents. It SHALL instruct agents to: (1) run `pytest` from `megaqueue/` after any code change, (2) add or update tests when modifying existing functionality or adding new functionality, (3) follow existing fixture and mocking conventions in `conftest.py`. The file SHALL include the test run command and a brief description of the test structure.
+### Requirement: Agent testing instructions
+A `megaqueue/AGENTS.md` file SHALL document the testing workflow for coding agents. It SHALL instruct agents to: (1) run `pytest` from `megaqueue/` after any code change, (2) add or update tests when modifying existing functionality or adding new functionality, (3) follow existing fixture and mocking conventions in `conftest.py`. The file SHALL include the test run command and a brief description of the test structure.
 
-#### Scenario: Agent reads CLAUDE.md and knows to run tests
-- **WHEN** a Claude agent starts a conversation involving megaqueue code changes
-- **THEN** it reads `megaqueue/CLAUDE.md` and knows to run `cd megaqueue && pytest` to verify changes
+#### Scenario: Agent reads AGENTS.md and knows to run tests
+- **WHEN** an agent starts a conversation involving megaqueue code changes
+- **THEN** it reads `megaqueue/AGENTS.md` and knows to run `cd megaqueue && pytest` to verify changes
 
 #### Scenario: Agent adds tests for new functionality
-- **WHEN** a Claude agent adds a new feature (e.g., a new route or worker behavior)
+- **WHEN** an agent adds a new feature (e.g., a new route or worker behavior)
 - **THEN** it also creates corresponding tests following the patterns in the existing test suite
 
 #### Scenario: Agent updates tests for modified functionality
-- **WHEN** a Claude agent modifies existing behavior (e.g., changes organizer routing logic)
+- **WHEN** an agent modifies existing behavior (e.g., changes organizer routing logic)
 - **THEN** it updates the relevant tests to match the new behavior and verifies they pass
 
 ### Requirement: Notification tests
